@@ -2,18 +2,26 @@ name: Embed code in README
 
 on:
   pull_request:
-    branches:
-      - main
+    paths:
+      - ".github/workflows/update-readme.yml"
+      - "Performance/IOMMU/IOMMU.md"
+  push:
+    branches: [ main ]
+    paths:
+      - "Performance/IOMMU/IOMMU.md"
   workflow_dispatch:
 
 jobs:
-  embed-code:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only needed if you commit back to repo
+
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v4
         with:
-          persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
-          fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
+#          persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
+#          fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
           ref: refs/heads/${{ github.head_ref }}
 
       - uses: singlecheeze/markdown-embed-code@main
