@@ -16,7 +16,7 @@ jobs:
           fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
           ref: refs/heads/${{ github.head_ref }}
 
-      - uses: tokusumi/markdown-embed-code@main
+      - uses: singlecheeze/markdown-embed-code@main
         with:
           markdown: "Performance/IOMMU/IOMMU.md"
           token: ${{ secrets.GITHUB_TOKEN }}
