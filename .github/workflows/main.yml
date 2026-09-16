@@ -9,7 +9,7 @@ jobs:
   embed-code:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4.4.0
         with:
           persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
           fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
@@ -19,5 +19,5 @@ jobs:
         with:
           markdown: "Performance/IOMMU/IOMMU.md"
           token: ${{ secrets.GITHUB_TOKEN }}
-          message: "synchronizing Readme"
+          message: "Synchronizing Readme"
           silent: true
