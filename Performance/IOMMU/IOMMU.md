@@ -23,6 +23,7 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$
 - Sometimes, depending on server manufacturer, you must ensure PCIe Access Control Services (ACS) is `disabled`, or set to `auto`, in your server’s BIOS to permit direct GPU-to-NIC PCIe switches. 
 - `intel_iommu=on`, `amd_iommu=off`, `amd_iommu=force_enable`, `amd_iommu=force_isolation`
   - The Intel equivalent, `intel_iommu=on`, is valid, which is probably where the confusion comes from. On AMD systems, IOMMU is normally enabled automatically when the firmware exposes AMD-Vi; Red Hat’s current RHEL 9 guidance says to use only iommu=pt to select pass-through mode.
+[Performance/IOMMU/99-enable-iommu-pass-through.yaml](https://github.com/singlecheeze/ocp-cheat-sheet/blob/f244cc26744be61e62f16f92cb89a5c7134638e2/Performance/IOMMU/99-enable-iommu-pass-through.yaml)
 ```yaml:Performance/IOMMU/99-enable-iommu-pass-through.yaml
 
 ```
