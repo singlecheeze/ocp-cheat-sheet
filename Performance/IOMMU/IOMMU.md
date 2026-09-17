@@ -35,7 +35,7 @@ metadata:
   name: 99-enable-iommu-pass-through
 spec:
   kernelArguments:
-    - "iommu=pt"      # This enables IOMMU Pass-Through Mode
+    - "iommu=pt test"      # This enables IOMMU Pass-Through Mode
 ```
  To Verify:
 ```bash
