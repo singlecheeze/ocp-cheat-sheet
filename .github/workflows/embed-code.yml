@@ -1,0 +1,57 @@
+name: Synchronize embedded code
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "Performance/IOMMU/99-enable-iommu-pass-through.yaml"
+      - "Performance/IOMMU/IOMMU.md"
+      - ".github/workflows/embed-code.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  embed-code:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current branch
+        uses: actions/checkout@v7
+
+      - name: Synchronize embedded code
+        uses: singlecheeze/markdown-embed-code@main
+        with:
+          markdown: Performance/IOMMU/IOMMU.md
+
+      - name: Check for generated changes
+        id: changes
+        shell: bash
+        run: |
+          if git diff --quiet -- Performance/IOMMU/IOMMU.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No embedded-code changes."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+
+            echo "Generated Markdown changes:"
+            git diff -- Performance/IOMMU/IOMMU.md
+          fi
+
+      - name: Commit and push generated Markdown
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add Performance/IOMMU/IOMMU.md
+
+          git commit \
+            -m "docs: synchronize embedded code"
+
+          git push origin "HEAD:${GITHUB_REF_NAME}"
