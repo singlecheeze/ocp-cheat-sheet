@@ -29,4 +29,4 @@ jobs:
           markdown: "Performance/IOMMU/IOMMU.md"
           token: ${{ secrets.GITHUB_TOKEN }}
           message: "Synchronizing Readme"
-          silent: false
+          silent: "false"
