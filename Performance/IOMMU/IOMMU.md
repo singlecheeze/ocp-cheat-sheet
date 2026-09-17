@@ -26,7 +26,15 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$
 
 <!-- embed-code: ./99-enable-iommu-pass-through.yaml -->
 ```yaml
-
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: master
+  name: 99-enable-iommu-pass-through
+spec:
+  kernelArguments:
+    - "iommu=pt"      # This enables IOMMU Pass-Through Mode
 ```
  To Verify:
 ```bash
