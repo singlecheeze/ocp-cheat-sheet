@@ -4,10 +4,6 @@ on:
   push:
     branches:
       - "**"
-    paths:
-      - "Performance/IOMMU/99-enable-iommu-pass-through.yaml"
-      - "Performance/IOMMU/IOMMU.md"
-      - ".github/workflows/embed-code.yml"
 
   workflow_dispatch:
 
@@ -23,33 +19,26 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Synchronize embedded code
+        id: embed
         uses: singlecheeze/markdown-embed-code@main
-        with:
-          markdown: Performance/IOMMU/IOMMU.md
 
-      - name: Check for generated changes
-        id: changes
+      - name: Show generated changes
+        if: steps.embed.outputs.changed == 'true'
         shell: bash
         run: |
-          if git diff --quiet -- Performance/IOMMU/IOMMU.md; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No embedded-code changes."
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-
-            echo "Generated Markdown changes:"
-            git diff -- Performance/IOMMU/IOMMU.md
-          fi
+          echo "Markdown files changed: ${{ steps.embed.outputs.files_changed }}"
+          echo "Embedded blocks processed: ${{ steps.embed.outputs.embedded_blocks }}"
+          git status --short
+          git diff
 
       - name: Commit and push generated Markdown
-        if: steps.changes.outputs.changed == 'true'
+        if: steps.embed.outputs.changed == 'true'
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add Performance/IOMMU/IOMMU.md
-
+          git add -A
           git commit -m "docs: synchronize embedded code"
-
           git push origin "HEAD:${GITHUB_REF_NAME}"
