@@ -89,6 +89,15 @@ If you do not already have a KubeletConfig targeting master, I'd use this:
 [Source: `auto-sizing-master.yaml`](./auto-sizing-master.yaml)
 <!-- embed-code: ./auto-sizing-master.yaml -->
 ```yaml
+apiVersion: machineconfiguration.openshift.io/v1
+kind: KubeletConfig
+metadata:
+  name: auto-sizing-master
+spec:
+  autoSizingReserved: true
+  machineConfigPoolSelector:
+    matchLabels:
+      pools.operator.machineconfiguration.openshift.io/master: ""
 ```
 `autoSizingReserved` is specifically intended to calculate the CPU and memory reservation based on each node's capacity, and it can be applied to master/control-plane pools as well as workers.
   
