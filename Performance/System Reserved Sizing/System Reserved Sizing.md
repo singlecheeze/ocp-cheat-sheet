@@ -144,6 +144,7 @@ SYSTEM_RESERVED_CPU=1.58
 SYSTEM_RESERVED_ES=1Gi
 ```
 The actual value depends on the RAM and CPU count.  
+  
 OpenShift 4.22 uses this memory formula:
 * 25% of the first 4 GiB
 * 20% of the next 4 GiB
