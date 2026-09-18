@@ -1,0 +1,19 @@
+variant: openshift
+version: 4.22.0
+
+metadata:
+  name: 99-master-rdma-memlock
+  labels:
+    machineconfiguration.openshift.io/role: master
+
+storage:
+  files:
+    - path: /etc/crio/crio.conf.d/99-rdma-memlock
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [crio.runtime]
+          default_ulimits = [
+            "memlock=-1:-1"
+          ]

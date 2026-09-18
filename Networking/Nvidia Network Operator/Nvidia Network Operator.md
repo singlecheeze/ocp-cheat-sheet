@@ -23,10 +23,147 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$ My cluster is using:
   - Shielding the Lx interfaces from being saturated and causing `etcd` latency issues. 
   - This is also best practices directly from Nvidia.
   
-$${\color{red}\textbf{\textsf{WARNING:}}}$$ Deploy a `NodeFeatureDiscovery` operand first from the Node Feature Discovery Operator!
+$${\color{red}\textbf{\textsf{WARNING:}}}$$ Deploy a `NodeFeatureDiscovery` operand first from the Node Feature Discovery Operator!  
+  
+$${\color{yellow}\textbf{\textsf{CRITICAL:}}}$$ Apply the below `machineconfig` as Red Hat specifically requires unlimited memlock on OpenShift GPU nodes for NIXL/RDMA because RDMA registration pins memory.
+- You may want to `pause` you `MachineConfigPool` (MCP) if you have other configs to apply as this will cause a rolling reboot of your nodes.
+- If you do `pause` your MCP, don't forget to resume it!
+- Default setting on my cluster was `8192`
+  
+Generate the MachineConfig:
+[Source: `Sources/99-master-rdma-memlock.bu`](Sources/99-master-rdma-memlock.bu)
+<!-- embed-code: ./Sources/99-master-rdma-memlock.bu -->
+```yaml
+```
+```bash
+butane 99-master-rdma-memlock.bu -o 99-master-rdma-memlock.yaml
+```
+[Source: `Sources/99-master-rdma-memlock.yaml`](Sources/99-master-rdma-memlock.yaml)
+<!-- embed-code: ./Sources/99-master-rdma-memlock.yaml -->
+```yaml
+```
+How to check the Check CRI-O's configuration:
+```bash
+for NODE in ocp113.localdomain ocp115.localdomain; do
+  echo
+  echo "=== ${NODE} ==="
 
+  oc debug node/"${NODE}" --quiet -- \
+    chroot /host bash -c \
+    'crio config 2>/dev/null | grep -A4 -B2 default_ulimits'
+done
+```
+For example:
+```text
+=== ocp113.localdomain ===
+# "nofile=1024:2048"
+# If nothing is set here, settings will be inherited from the CRI-O daemon
+default_ulimits = [
+        "memlock=-1:-1",
+]
+
+# If true, the runtime will not use pivot_root, but instead use MS_MOVE.
+
+=== ocp115.localdomain ===
+# "nofile=1024:2048"
+# If nothing is set here, settings will be inherited from the CRI-O daemon
+default_ulimits = [
+        "memlock=-1:-1",
+]
+
+# If true, the runtime will not use pivot_root, but instead use MS_MOVE.
+```
+This can be used too:
+```bash
+for NODE in ocp113.localdomain ocp115.localdomain; do
+  echo
+  echo "==============================="
+  echo "${NODE}"
+  echo "==============================="
+
+  oc debug node/"${NODE}" --quiet -- \
+    chroot /host bash -c '
+      echo "--- RDMA memlock drop-in ---"
+      ls -l /etc/crio/crio.conf.d/99-rdma-memlock 2>/dev/null || true
+      cat /etc/crio/crio.conf.d/99-rdma-memlock 2>/dev/null || true
+
+      echo
+      echo "--- All default_ulimits definitions ---"
+      grep -Rns "default_ulimits" \
+        /etc/crio/crio.conf \
+        /etc/crio/crio.conf.d 2>/dev/null || true
+
+      echo
+      echo "--- Effective CRI-O configuration ---"
+      crio status config 2>/dev/null | grep -A4 -B2 default_ulimits
+    '
+done
+```
+For example:
+```text
+===============================
+ocp113.localdomain
+===============================
+--- RDMA memlock drop-in ---
+-rw-r--r--. 1 root root 55 Sep 18 20:17 /etc/crio/crio.conf.d/99-rdma-memlock
+[crio.runtime]
+default_ulimits = [
+  "memlock=-1:-1"
+]
+
+--- All default_ulimits definitions ---
+/etc/crio/crio.conf:128:# default_ulimits = [
+/etc/crio/crio.conf.d/99-rdma-memlock:2:default_ulimits = [
+
+--- Effective CRI-O configuration ---
+    min_injected_gomaxprocs = 0
+    default_sysctls = ["net.ipv4.ping_group_range=0 2147483647"]
+    default_ulimits = ["memlock=-1:-1"]
+    allowed_devices = ["/dev/fuse", "/dev/net/tun"]
+    cdi_spec_dirs = ["/etc/cdi", "/var/run/cdi"]
+    device_ownership_from_security_context = false
+    default_runtime = "crun"
+
+===============================
+ocp115.localdomain
+===============================
+--- RDMA memlock drop-in ---
+-rw-r--r--. 1 root root 55 Sep 18 20:26 /etc/crio/crio.conf.d/99-rdma-memlock
+[crio.runtime]
+default_ulimits = [
+  "memlock=-1:-1"
+]
+
+--- All default_ulimits definitions ---
+/etc/crio/crio.conf:128:# default_ulimits = [
+/etc/crio/crio.conf.d/99-rdma-memlock:2:default_ulimits = [
+
+--- Effective CRI-O configuration ---
+    min_injected_gomaxprocs = 0
+    default_sysctls = ["net.ipv4.ping_group_range=0 2147483647"]
+    default_ulimits = ["memlock=-1:-1"]
+    allowed_devices = ["/dev/fuse", "/dev/net/tun"]
+    cdi_spec_dirs = ["/etc/cdi", "/var/run/cdi"]
+    device_ownership_from_security_context = false
+    default_runtime = "crun"
+```
+Finally, test a newly created container:
+```bash
+for NODE in ocp113.localdomain ocp114.localdomain ocp115.localdomain; do
+  printf "%-22s " "${NODE}"
+
+  oc debug node/"${NODE}" --quiet -- \
+    chroot /host bash -c 'ulimit -l'
+done
+```
+Expected:
+```text
+ocp113.localdomain     unlimited
+ocp114.localdomain     unlimited
+ocp115.localdomain     unlimited
+```
 Then, create a `NodeNetworkConfigurationPolicy` for the Dx NICs:  
-[Source: `Sources/100gb-bond-nnc.yaml`](Sources/100gb-bond-nnc.yaml)
+[Source: `Sources/100gb-bond-nnc.yaml`](Sources/100gb-bond-nnc.yaml)  
 <!-- embed-code: ./Sources/100gb-bond-nnc.yaml -->
 ```yaml
 apiVersion: nmstate.io/v1
