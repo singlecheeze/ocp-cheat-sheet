@@ -3,7 +3,7 @@ Setting `spec.paused: true` on the MachineConfigPool
 - You can apply multiple MachineConfig resources, then unpause the pool and let the MCO converge the nodes to the combined configuration. 
 - Red Hat explicitly documents this as a way to accumulate configuration changes and apply them in a single reboot per node.
   
-For example, for the worker pool:
+For example, for the master pool:
 ```bash
 MCP=master
 
@@ -22,10 +22,10 @@ true
 ```
 Now apply all of the MachineConfigs you want:
 ```bash
-oc apply -f 50-worker-rdma.yaml
-oc apply -f 51-worker-iommu.yaml
-oc apply -f 52-worker-kernel-args.yaml
-oc apply -f 53-worker-sysctl.yaml
+oc apply -f 50-master-rdma.yaml
+oc apply -f 51-master-iommu.yaml
+oc apply -f 52-master-kernel-args.yaml
+oc apply -f 53-master-sysctl.yaml
 ```
 Or, if they're all in one directory:
 ```bash
@@ -38,7 +38,7 @@ oc get mcp
 You'll typically see something along these lines:
 ```bash
 NAME     CONFIG                          UPDATED   UPDATING   DEGRADED
-worker   rendered-worker-xxxxxxxxxxxx    False     False      False
+master   rendered-master-xxxxxxxxxxxx    False     False      False
 ```
 `UPDATED=False` + `UPDATING=Fals`e on a paused pool indicates that there are pending changes, but the MCO is not rolling them out. Red Hat specifically describes that state as pending configuration on a paused MCP.
   
@@ -131,10 +131,10 @@ echo "Ready to unpause."
 ```
 Then, after verifying everything:
 ```bash
-oc patch mcp worker \
+oc patch mcp master \
   --type=merge \
   -p '{"spec":{"paused":false}}'
 
-oc get mcp worker -w
+oc get mcp master -w
 ```
 That is much preferable when you're iterating through several low-level node settings, because otherwise each MachineConfig you apply can produce a new rendered configuration while the previous rollout is still progressing, potentially resulting in additional node updates. Red Hat's 4.22 documentation explicitly recommends pausing when applying multiple additional configurations so they can be applied together.
