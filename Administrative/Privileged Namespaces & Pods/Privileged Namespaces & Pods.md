@@ -39,6 +39,54 @@ Create a narrow test SCC:
 [Source: `Sources/doca-gpudirect-test.yaml`](Sources/doca-gpudirect-test.yaml)  
 <!-- embed-code: ./Sources/doca-gpudirect-test.yaml -->
 ```yaml
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: doca-gpudirect-test
+priority: 10
+
+allowPrivilegedContainer: false
+allowPrivilegeEscalation: false
+defaultAllowPrivilegeEscalation: false
+
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+
+readOnlyRootFilesystem: false
+
+allowedCapabilities:
+  - IPC_LOCK
+    - NET_RAW
+
+defaultAddCapabilities: []
+
+requiredDropCapabilities:
+  - ALL
+
+runAsUser:
+  type: RunAsAny
+
+seLinuxContext:
+  type: MustRunAs
+
+fsGroup:
+  type: RunAsAny
+
+supplementalGroups:
+  type: RunAsAny
+
+seccompProfiles:
+  - runtime/default
+
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - projected
+  - secret
 ```
 Grant it to the dedicated service account:
 ```bash

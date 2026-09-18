@@ -18,6 +18,16 @@ To set `maxPods` (Swap `master` for `worker` if needed, see Machine Config Pool 
 [Source: `Sources/99-set-master-max-pods.yaml`](Sources/99-set-master-max-pods.yaml)  
 <!-- embed-code: ./Sources/99-set-master-max-pods.yaml -->  
 ```yaml
+apiVersion: machineconfiguration.openshift.io/v1
+kind: KubeletConfig
+metadata:
+  name: 99-set-master-max-pods
+spec:
+  machineConfigPoolSelector:
+    matchLabels:
+      pools.operator.machineconfiguration.openshift.io/master: ""
+  kubeletConfig:
+    maxPods: 500
 ```
 Then check nodes after reboots:
 ```text

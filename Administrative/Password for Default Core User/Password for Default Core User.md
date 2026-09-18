@@ -10,4 +10,18 @@ $6$/dAWtZhNOiMPG5ms$fBKEHAxjJSWeH/Z1ZLmtABgLR9kUNJopISY.9FOdVJMi.BJh8D9wXu9zEx/9
 [Source: `Sources/99-core-password.yaml`](Sources/99-core-password.yaml)
 <!-- embed-code: ./Sources/99-core-password.yaml -->
 ```yaml
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-core-password
+  labels:
+    machineconfiguration.openshift.io/role: master
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    passwd:
+      users:
+        - name: core
+          passwordHash: $6$/dAWtZhNOiMPG5ms$fBKEHAxjJSWeH/Z1ZLmtABgLR9kUNJopISY.9FOdVJMi.BJh8D9wXu9zEx/93bxQMluJdSEDdkqsLRultbaRX1
 ```
