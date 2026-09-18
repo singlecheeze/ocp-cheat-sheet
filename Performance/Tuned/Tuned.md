@@ -11,7 +11,7 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$ Please see below!
 - We include it anyway, see `include=openshift-control-plane` in the `tuned` profile. 
   
 [Source: `Sources/lab-combined.yaml`](Sources/lab-combined.yaml)
-<!-- embed-code: ./lab-combined.yaml -->
+<!-- embed-code: ./Sources/lab-combined.yaml -->
 ```yaml
 apiVersion: tuned.openshift.io/v1
 kind: Tuned

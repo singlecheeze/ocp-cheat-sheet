@@ -96,7 +96,7 @@ Because `ocp113` in the cluster you've shown me is a `control-plane,master,worke
    
 If you do not already have a KubeletConfig targeting master, I'd use this:  
 [Source: `Sources/auto-sizing-master.yaml`](Sources/auto-sizing-master.yaml)
-<!-- embed-code: ./auto-sizing-master.yaml -->
+<!-- embed-code: ./Sources/auto-sizing-master.yaml -->
 ```yaml
 apiVersion: machineconfiguration.openshift.io/v1
 kind: KubeletConfig
