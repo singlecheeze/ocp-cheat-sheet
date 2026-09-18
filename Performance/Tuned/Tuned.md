@@ -5,7 +5,7 @@ Below is a `tuned` profile that combines settings for various optimizations incl
 - Filesystem
 - RAM
   
-$${\color{deeppink}\textbf{\textsf{Note:}}}$$
+  $${\color{deeppink}\textbf{\textsf{Note:}}}$$
 - Some of the below is included in other areas, namely Compute/Processor Speed Stepping.  
 - The profile with the highest priority (10) is openshift-control-planes and, therefore, it is considered first.
 - We include it anyway, see `include=openshift-control-plane` in the `tuned` profile. 
