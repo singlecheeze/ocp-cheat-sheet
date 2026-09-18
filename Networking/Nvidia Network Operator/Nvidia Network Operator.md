@@ -54,9 +54,11 @@ storage:
             "memlock=-1:-1"
           ]
 ```
+Then:  
 ```bash
 butane 99-master-rdma-memlock.bu -o 99-master-rdma-memlock.yaml
 ```
+That will result in:  
 [Source: `Sources/99-master-rdma-memlock.yaml`](Sources/99-master-rdma-memlock.yaml)
 <!-- embed-code: ./Sources/99-master-rdma-memlock.yaml -->
 ```yaml
