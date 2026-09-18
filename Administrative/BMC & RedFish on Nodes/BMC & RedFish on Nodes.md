@@ -4,10 +4,10 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$ This might differ slightly by serv
   
 To test redfish endpoint: https://172.16.1.14/redfish/v1/Systems/Self  
   
-<img width="808" height="661" alt="image" src="https://gist.github.com/user-attachments/assets/95ca095b-a96f-4783-acdf-775a3c1e2136" />
+<img alt="image" src="Images/638845046-95ca095b-a96f-4783-acdf-775a3c1e2136.png" />
   
 ```text
 redfish-virtualmedia://172.16.1.13/redfish/v1/Systems/Self
 ```
   
-<img width="789" height="1065" alt="image" src="https://gist.github.com/user-attachments/assets/6411a5ed-1ba6-464c-b134-e2a3de1a2763" />
+<img alt="image" src="Images/634940955-6411a5ed-1ba6-464c-b134-e2a3de1a2763.png" />
