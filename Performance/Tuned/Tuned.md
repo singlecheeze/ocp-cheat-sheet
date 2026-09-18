@@ -13,6 +13,64 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$
 [Source: `lab-combined.yaml`](./lab-combined.yaml)
 <!-- embed-code: ./lab-combined.yaml -->
 ```yaml
+apiVersion: tuned.openshift.io/v1
+kind: Tuned
+metadata:
+  name: lab-combined
+  namespace: openshift-cluster-node-tuning-operator
+spec:
+  profile:
+    - name: lab-combined
+      data: |
+        [main]
+        summary=Performance optimized profile
+        description=These are settings taken from other profiles, including: throughput-performance, network-throughput, latency-performance, network-latency, openshift-node.
+        include=openshift-control-plane
+
+        [cpu]
+        governor=powersave
+        energy_perf_bias=normal
+        boost=1
+        
+        [sysctl]
+        # If a workload mostly uses anonymous memory and it hits this limit, the entire working set is buffered for I/O, and any more write buffering would require swapping, so it's time to throttle writes until I/O can catch up. Workloads that mostly use file mappings may be able to use even higher values. The generator of dirty data starts writeback at this percentage (System default is 20%).
+        vm.dirty_ratio=10
+        # Start background writeback (Via writeback threads) at this percentage (System default is 10%).
+        vm.dirty_background_ratio=3
+        # Disable Swappiness & Local Zone Reclaims: Prevents page allocation stalls and latency spikes in multi-socket/NUMA architectures.
+        vm.swappiness=0
+        vm.stat_interval=10
+        vm.zone_reclaim_mode=0
+        # Increase Memory Map Limits: Allows applications like PyTorch or JAX to register thousands of memory allocations seamlessly.
+        vm.max_map_count=1048576
+        
+        [sysctl-openshift-node]
+        type=sysctl
+        # This is required as both openshift-node and openshift-control-plane include=openshift but openshift-node has these additional settings.
+        # Optimize Network Buffer Sizes: Ensures the network stack can handle huge bursts of helper traffic across high-bandwidth (100Gbps–400Gbps+) links.
+        fs.inotify.max_user_watches=65536
+        fs.inotify.max_user_instances=8192
+        # Enable Explicit Congestion Notification (ECN): Required for DCQCN (Data Center Quantized Congestion Notification, RoCEv2) to signal network bottlenecks without dropping packets.
+        net.ipv4.tcp_ecn=1
+        net.ipv4.tcp_fastopen=3
+        net.ipv4.tcp_slow_start_after_idle=0
+        net.ipv4.tcp_rmem="4096 87380 134217728"
+        net.ipv4.tcp_wmem="4096 65536 134217728"
+        net.core.busy_read=50
+        net.core.busy_poll=50
+        net.core.netdev_max_backlog=250000
+        net.core.rmem_max=134217728
+        net.core.wmem_max=134217728
+        kernel.hung_task_timeout_secs=120
+        kernel.nmi_watchdog=0
+        kernel.numa_balancing=0       
+        kernel.timer_migration=0 
+
+  recommend:
+    - profile: lab-combined
+      priority: 10
+      match:
+        - label: node-role.kubernetes.io/master
 ```
 Some Defaults for Reference:
 ```bash
