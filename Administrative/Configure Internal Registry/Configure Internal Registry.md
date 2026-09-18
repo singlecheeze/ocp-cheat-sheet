@@ -25,4 +25,4 @@ oc patch configs.imageregistry.operator.openshift.io cluster --type merge --patc
 oc get clusteroperator image-registry
 ```
 Edit default route to disable TLS and map port 5000 (Allow insecure):  
-   <img width="848" height="861" alt="image" src="Images/634954502-145dbb1f-8afa-4c61-9e0a-5541c427134f.png" />
+   <img alt="image" src="Images/634954502-145dbb1f-8afa-4c61-9e0a-5541c427134f.png" />
