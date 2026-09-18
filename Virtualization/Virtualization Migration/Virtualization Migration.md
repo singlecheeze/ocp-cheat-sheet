@@ -1,7 +1,7 @@
-$${\color{deeppink}\textbf{\textsf{Note:}}}$$ Mostly Deprecated
-$${\color{lime}\textbf{\textsf{TODO:}}}$$ Some of the below is deprecated!
+$${\color{deeppink}\textbf{\textsf{Note:}}}$$ Mostly Deprecated  
+$${\color{lime}\textbf{\textsf{TODO:}}}$$ Some of the below is deprecated!  
 Ref: https://access.redhat.com/documentation/en-us/migration_toolkit_for_virtualization/2.2/html/installing_and_using_the_migration_toolkit_for_virtualization/prerequisites#creating-vddk-image_mtv   
-Ref: https://access.redhat.com/documentation/en-us/migration_toolkit_for_virtualization/2.3/html/installing_and_using_the_migration_toolkit_for_virtualization/migrating-vms-web-console#adding-source-provider_vmware
+Ref: https://access.redhat.com/documentation/en-us/migration_toolkit_for_virtualization/2.3/html/installing_and_using_the_migration_toolkit_for_virtualization/migrating-vms-web-console#adding-source-provider_vmware  
 
 Download latest VDDK here:  
 https://developer.vmware.com/web/sdk/7.0/vddk  
