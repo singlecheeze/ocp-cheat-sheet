@@ -125,7 +125,7 @@ oc apply -f jumbo-bond-mtu.yaml
 ```bash
 oc get nnce
 ```
-*Do not proceed until all bare-metal nodes read 'SuccessfullyEnacted'.*
+$${\color{yellow}\textbf{\textsf{CRITICAL:}}}$$ *Do not proceed until all bare-metal nodes read 'SuccessfullyEnacted'.*
   
 #### Validate NIC MTU  
 ```bash
