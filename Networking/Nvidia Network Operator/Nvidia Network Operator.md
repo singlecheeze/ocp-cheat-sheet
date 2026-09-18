@@ -29,6 +29,48 @@ Then, create a `NodeNetworkConfigurationPolicy` for the Dx NICs:
 [Source: `Sources/100gb-bond-nnc.yaml`](Sources/100gb-bond-nnc.yaml)
 <!-- embed-code: ./Sources/100gb-bond-nnc.yaml -->
 ```yaml
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: 100gb-bond-nnc
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/master: ""
+  desiredState:
+    interfaces:
+      - name: enp1s0f0np0
+        type: ethernet
+        state: up
+        mtu: 9100
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+      - name: enp1s0f1np1
+        type: ethernet
+        state: up
+        mtu: 9100
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+      - name: bond1
+        type: bond
+        state: up
+        mtu: 9100
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+        link-aggregation:
+          mode: 802.3ad
+          options:
+            miimon: "100"
+            lacp_rate: fast
+            xmit_hash_policy: layer3+4
+          port:
+            - enp1s0f0np0
+            - enp1s0f1np1
 ```
 Verify MTU after `Enactments` succeed:  
 $${\color{deeppink}\textbf{\textsf{Note:}}}$$ My interfaces are down as they are admin downed at the switch still.  
@@ -61,6 +103,58 @@ $${\color{red}\textbf{\textsf{WARNING:}}}$$ Both of the env vars below will caus
 [Source: `Sources/nic-cluster-policy.yaml`](Sources/nic-cluster-policy.yaml)
 <!-- embed-code: ./Sources/nic-cluster-policy.yaml -->
 ```yaml
+kind: NicClusterPolicy
+apiVersion: mellanox.com/v1alpha1
+metadata:
+  name: nic-cluster-policy
+spec:
+  ofedDriver:
+    image: doca-driver
+    livenessProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+    env:
+      - name: UNLOAD_STORAGE_MODULES   # This will unload the active kernel modules of the inbox driver
+        value: 'true'
+      - name: DISABLE_SAFE_DRIVER_LOADING   # This will cause the drivers to step on the inbox drivers aggressively to load them
+        value: 'true'
+    readinessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    repository: nvcr.io/nvidia/mellanox
+    startupProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 20
+    terminationGracePeriodSeconds: 300
+    upgradePolicy:
+      autoUpgrade: true
+      drain:
+        deleteEmptyDir: true
+        enable: true
+        force: true
+        podSelector: ''
+        timeoutSeconds: 300
+      maxParallelUpgrades: 1
+    version: doca3.5.0-26.07-0.7.7.0-0
+  rdmaSharedDevicePlugin:
+    config: |
+      {
+        "configList": [
+          {
+            "resourceName": "rdma_shared_device_dx_bond",
+            "rdmaHcaMax": 1000,
+            "selectors": {
+              "ifNames": [
+              "enp1s0f0np0",
+              "enp1s0f1np1"
+            ]
+            }
+          }
+        ]
+      }
+    image: k8s-rdma-shared-dev-plugin
+    repository: nvcr.io/nvidia/mellanox
+    version: 'sha256:2d28133fdee8c263e19b4d0656bf58d30513c9d13e47ef84bd68c5499b3c18ce'
 ```
 If you hit an error like this in one of the Nvidia Network Operator DaemonSet pods, then see/add the environment variable(s) above (`DISABLE_SAFE_DRIVER_LOADING` may be superseded by `upgradePolicy: safeLoad: false` which looks to be appended to the `NicClusterPolicy` after creation, regardless of env vars):
 ```text
@@ -546,6 +640,24 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$ `exclude` and `range_start` / `ran
 [Source: `Sources/rdma-bond.yaml`](Sources/rdma-bond.yaml)
 <!-- embed-code: ./Sources/rdma-bond.yaml -->
 ```yaml
+apiVersion: mellanox.com/v1alpha1
+kind: MacvlanNetwork
+metadata:
+  name: rdma-bond
+spec:
+  networkNamespace: rdma-test
+  master: bond1
+  mode: bridge
+  mtu: 9000
+  ipam: |
+    {
+      "type": "whereabouts",
+      "range": "172.16.100.0/24",
+      "exclude": [
+        "172.16.100.0/30",
+        "172.16.100.255/32"
+      ]
+    }
 ```
 This will automatically create a Network Attachment Definition:
 ```yaml
