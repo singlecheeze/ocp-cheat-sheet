@@ -16,13 +16,13 @@ Why is `iommu=pt` critical for RoCE v2 & GPUDirect?
 - **`iommu=pt` represents the ideal compromise:**
   - The IOMMU hardware remains active so you can still use driver isolation (VFIO) to pass dedicated GPUs or Virtual Functions into hypervisors/virtual machines.
   - For the actual data-plane streams (the heavy RoCE v2 and GPUDirect traffic), the translation overhead is completely bypassed to maintain bare-metal line-rate throughput.
-  
-$${\color{deeppink}\textbf{\textsf{Note:}}}$$  
+
+<p align="left">$${\color{deeppink}\textbf{\textsf{Note:}}}$$  </p> 
 - The Nvidia GPU/NIC Operator does NOT configure pass-through for you at this time.  
 - If you have IOMMU Disabled in your BIOS, you do not need to apply this.
 - Sometimes, depending on server manufacturer, you must ensure PCIe Access Control Services (ACS) is `disabled`, or set to `auto`, in your server’s BIOS to permit direct GPU-to-NIC PCIe switches. 
 - `intel_iommu=on`, `amd_iommu=off`, `amd_iommu=force_enable`, `amd_iommu=force_isolation`
-  - The Intel equivalent, `intel_iommu=on`, is valid, which is probably where the confusion comes from. On AMD systems, IOMMU is normally enabled automatically when the firmware exposes AMD-Vi; Red Hat’s current RHEL 9 guidance says to use only iommu=pt to select pass-through mode.
+  - The Intel equivalent, `intel_iommu=on`, is valid, which is probably where any confusion comes from. On AMD systems, IOMMU is normally enabled automatically when the firmware exposes AMD-Vi; Red Hat’s current RHEL 9 guidance says to use only iommu=pt to select pass-through mode.
 
 [Source: `99-enable-iommu-pass-through.yaml`](./99-enable-iommu-pass-through.yaml)
 <!-- embed-code: ./99-enable-iommu-pass-through.yaml -->
