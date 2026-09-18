@@ -78,15 +78,65 @@ Edit VM labels:
 [Source: `Sources/postgres.yaml`](Sources/postgres.yaml)
 <!-- embed-code: ./Sources/postgres.yaml -->
 ```yaml
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: postgres
+  namespace: percap
+spec:
+  running: false
+  template:
+    metadata:
+      labels:
+        internalService: svc-postgres-clusterip
+  domain:
+    devices:
+      interfaces:
+        - macAddress: '00:50:56:81:35:dd'
+          masquerade: {}
+          model: virtio
+          name: net-0
+          ports:
+            - port: 5432
+  networks:
+    - name: net-0
+      pod: {}
 ```
 And a Service to match (ClusterIP or NodePort):  
 [Source: `Sources/svc-postgres-clusterip.yaml`](Sources/svc-postgres-clusterip.yaml)
 <!-- embed-code: ./Sources/svc-postgres-clusterip.yaml -->
 ```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-postgres-clusterip
+  namespace: percap
+spec:
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432
+  selector:
+    internalService: svc-postgres-clusterip
+  type: ClusterIP
 ```
 [Source: `Sources/svc-postgres-nodeport.yaml`](Sources/svc-postgres-nodeport.yaml)
 <!-- embed-code: ./Sources/svc-postgres-nodeport.yaml -->
 ```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-postgres-nodeport
+  namespace: percap
+spec:
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432
+    nodePort: 30000
+  selector:
+    externalService: svc-postgres-nodeport
+  type: NodePort
 ```
 Or do via command line:
 ```text
