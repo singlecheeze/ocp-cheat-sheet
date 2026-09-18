@@ -95,7 +95,7 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$ Red Hat recommends modifying an ex
 Because `ocp113` in the cluster you've shown me is a `control-plane,master,worker` node, I would target the master MCP, not just the worker MCP.
    
 If you do not already have a KubeletConfig targeting master, I'd use this:  
-[Source: `auto-sizing-master.yaml`](./auto-sizing-master.yaml)
+[Source: `Sources/auto-sizing-master.yaml`](Sources/auto-sizing-master.yaml)
 <!-- embed-code: ./auto-sizing-master.yaml -->
 ```yaml
 apiVersion: machineconfiguration.openshift.io/v1

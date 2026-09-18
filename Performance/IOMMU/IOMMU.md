@@ -24,7 +24,7 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$ The below items must be taken into
 - `intel_iommu=on`, `amd_iommu=off`, `amd_iommu=force_enable`, `amd_iommu=force_isolation`
   - The Intel equivalent, `intel_iommu=on`, is valid, which is probably where any confusion comes from. On AMD systems, IOMMU is normally enabled automatically when the firmware exposes AMD-Vi; Red Hat’s current RHEL 9 guidance says to use only iommu=pt to select pass-through mode.
 
-[Source: `99-enable-iommu-pass-through.yaml`](./99-enable-iommu-pass-through.yaml)
+[Source: `Sources/99-enable-iommu-pass-through.yaml`](Sources/99-enable-iommu-pass-through.yaml)
 <!-- embed-code: ./99-enable-iommu-pass-through.yaml -->
 ```yaml
 apiVersion: machineconfiguration.openshift.io/v1

@@ -5,12 +5,12 @@ Below is a `tuned` profile that combines settings for various optimizations incl
 - Filesystem
 - RAM
   
-  $${\color{deeppink}\textbf{\textsf{Note:}}}$$
+$${\color{deeppink}\textbf{\textsf{Note:}}}$$ Please see below!
 - Some of the below is included in other areas, namely Compute/Processor Speed Stepping.  
 - The profile with the highest priority (10) is openshift-control-planes and, therefore, it is considered first.
 - We include it anyway, see `include=openshift-control-plane` in the `tuned` profile. 
   
-[Source: `lab-combined.yaml`](./lab-combined.yaml)
+[Source: `Sources/lab-combined.yaml`](Sources/lab-combined.yaml)
 <!-- embed-code: ./lab-combined.yaml -->
 ```yaml
 apiVersion: tuned.openshift.io/v1
