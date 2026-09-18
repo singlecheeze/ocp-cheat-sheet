@@ -34,6 +34,25 @@ Generate the MachineConfig:
 [Source: `Sources/99-master-rdma-memlock.bu`](Sources/99-master-rdma-memlock.bu)
 <!-- embed-code: ./Sources/99-master-rdma-memlock.bu -->
 ```yaml
+variant: openshift
+version: 4.22.0
+
+metadata:
+  name: 99-master-rdma-memlock
+  labels:
+    machineconfiguration.openshift.io/role: master
+
+storage:
+  files:
+    - path: /etc/crio/crio.conf.d/99-rdma-memlock
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [crio.runtime]
+          default_ulimits = [
+            "memlock=-1:-1"
+          ]
 ```
 ```bash
 butane 99-master-rdma-memlock.bu -o 99-master-rdma-memlock.yaml
@@ -41,6 +60,23 @@ butane 99-master-rdma-memlock.bu -o 99-master-rdma-memlock.yaml
 [Source: `Sources/99-master-rdma-memlock.yaml`](Sources/99-master-rdma-memlock.yaml)
 <!-- embed-code: ./Sources/99-master-rdma-memlock.yaml -->
 ```yaml
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-master-rdma-memlock
+  labels:
+    machineconfiguration.openshift.io/role: master
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+        - path: /etc/crio/crio.conf.d/99-rdma-memlock
+          mode: 420
+          overwrite: true
+          contents:
+            source: data:text/plain;charset=utf-8;base64,W2NyaW8ucnVudGltZV0KZGVmYXVsdF91bGltaXRzID0gWwogICJtZW1sb2NrPS0xOi0xIgpdCg==
 ```
 How to check the Check CRI-O's configuration:
 ```bash
