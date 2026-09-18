@@ -2,6 +2,34 @@ To read from the OCP cluster API from within a debug pod (Similar if a non-debug
 [Source: `Sources/read-cluster-id.yaml`](Sources/read-cluster-id.yaml)  
 <!-- embed-code: ./Sources/read-cluster-id.yaml -->
 ```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: read-cluster-id
+rules:
+  - verbs:
+      - get
+    apiGroups:
+      - config.openshift.io
+    resources:
+      - clusterversions
+      - infrastructures
+    resourceNames:
+      - version
+      - cluster
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: read-cluster-id
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: read-cluster-id
+subjects:
+  - kind: ServiceAccount
+    name: default  #<-- or my-service-account if non debug pod
+    namespace: default  #<-- or my-namespace if non debug pod
 ```
 `oc debug node/` uses `hostNetwork: true`. Kubernetes documents that a `hostNetwork` pod with `dnsPolicy: ClusterFirst` falls back to the node's DNS behavior; cluster-service names such as `kubernetes.default.svc` may therefore not resolve. `ClusterFirstWithHostNet` is the policy intended for cluster DNS from host-networked pods.
 
