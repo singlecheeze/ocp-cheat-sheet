@@ -1,5 +1,5 @@
-To read from the OCP cluster API from within a debug pod (Similar if a non-debug pod):
-[Source: `Sources/read-cluster-id.yaml`](Sources/read-cluster-id.yaml)
+To read from the OCP cluster API from within a debug pod (Similar if a non-debug pod):  
+[Source: `Sources/read-cluster-id.yaml`](Sources/read-cluster-id.yaml)  
 <!-- embed-code: ./Sources/read-cluster-id.yaml -->
 ```yaml
 ```
