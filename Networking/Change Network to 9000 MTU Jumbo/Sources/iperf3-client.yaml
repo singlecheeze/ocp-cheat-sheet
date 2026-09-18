@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iperf3-client
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iperf3-client
+  template:
+    metadata:
+      labels:
+        app: iperf3-client
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - iperf3-server
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: iperf3
+        image: networkstatic/iperf3:latest
+        command: ["/bin/sh", "-c", "apt-get update && apt-get install -y procps && sleep infinity"] # Fixed package manager to apt-get

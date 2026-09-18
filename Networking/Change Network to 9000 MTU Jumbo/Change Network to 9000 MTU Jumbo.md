@@ -12,10 +12,11 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$ NMState Operator Required
 
 To account for the 100-byte OVN Geneve encapsulation overhead while establishing a true 9000 MTU cluster pod network, your underlying hardware interfaces must be capable of supporting 9100 MTU. Because this is a bare-metal architecture using an LACP bond (bond0), the target hardware configuration changes to 9100. This modification guarantees that 9000 bytes (Pod Payload) + 100 bytes (Geneve Headers) = 9100 bytes travels cleanly over the physical switches without packet fragmentation.  
 
-Important: Before performing these steps, verify that your physical Top-of-Rack (ToR) switches are configured to allow jumbo frames of at least 9100 bytes (many network engineers set switches to 9216 or 9198 to handle LACP/VLAN stacking headers natively).  
+$${\color{yellow}\textbf{\textsf{CRITICAL:}}}$$ Before performing these steps, verify that your physical Top-of-Rack (ToR) switches are configured to allow jumbo frames of at least 9100 bytes!
+- Many network engineers set switches to `9216` or `9198` to handle LACP/VLAN stacking headers natively.  
 <img alt="image" src="Images/639657695-a8f3abed-fb90-4dc0-8907-1a06e80ff250.png" />
 
-Phase 1: Shift Bare-Metal Host Bond to MTU 9100  
+### Phase 1: Shift Bare-Metal Host Bond to MTU 9100  
 Update your NodeNetworkConfigurationPolicy (NNCP) to apply an MTU of 9100 across both physical slave network interfaces (enp1s0f0np0 and enp1s0f1np1) and the aggregate logical LACP bond (bond0).
 Update your NMState file (jumbo-bond-mtu.yaml)  
 $${\color{deeppink}\textbf{\textsf{Note:}}}$$ Your interface names may vary...  
@@ -42,17 +43,17 @@ There are times that you just need to adjust un-used NICs to a higher MTU to cle
 <!-- embed-code: ./Sources/set-jumbo-mtu.yaml -->
 ```yaml
 ```
-Apply the manifest:
+#### Apply the manifest:
 ```bash
 oc apply -f jumbo-bond-mtu.yaml
 ```
-Ensure the underlying infrastructure transitions cleanly by tracking the Node Network Configuration Enactment (NNCE):
+#### Ensure the underlying infrastructure transitions cleanly by tracking the Node Network Configuration Enactment (NNCE):
 ```bash
 oc get nnce
 ```
 *Do not proceed until all bare-metal nodes read 'SuccessfullyEnacted'.*
   
-Validate NIC MTU  
+#### Validate NIC MTU  
 ```bash
 [root@ocp113 core]# ip link show | grep -i 'state up'
 4: enp1s0f0np0: <BROADCAST,MULTICAST,SLAVE,UP,LOWER_UP> mtu 9100 qdisc mq master bond0 state UP mode DEFAULT group default qlen 1000
@@ -60,36 +61,36 @@ Validate NIC MTU
 12: bond0: <BROADCAST,MULTICAST,MASTER,UP,LOWER_UP> mtu 9100 qdisc noqueue master ovs-system state UP mode DEFAULT group default qlen 1000
 ```
   
-Phase 2: Migrate OVN-Kubernetes Cluster MTU to 9000  
+### Phase 2: Migrate OVN-Kubernetes Cluster MTU to 9000  
 With a 9100-byte MTU established on the physical NICs, you can now target a 9000 cluster network MTU.  
   
-Retrieve Current Cluster MTU  
+#### Retrieve Current Cluster MTU  
 Verify your starting point (typically 1500 or whatever was configured in your initial setup):  
 ```bash
 oc get network.config cluster -o jsonpath='{.status.clusterNetworkMTU}'
 ```
   
-Execute the Migration Patch  
+#### Execute the Migration Patch  
 $${\color{deeppink}\textbf{\textsf{Note:}}}$$ *If you skip this step you will get a `InvalidOperatorConfig` warning on the network cluster operator!*  
 Patch the CNO to begin the MTU transition. Change the target network (to) to 9000. If your current configuration step outputted a value other than 1500, update the from field accordingly:  
 ```bash
 oc patch Network.operator.openshift.io cluster --type=merge --patch '{"spec":{"migration":{"mtu":{"machine":{"from":1500,"to":9100},"network":{"from":1400,"to":9000}}}}}'
 ```
   
-Complete the Rolling Reboot Cycle  
+#### Complete the Rolling Reboot Cycle  
 The Machine Config Operator (MCO) will safely rewrite network configs and execute a sequential rolling reboot across master and worker pools. Track this progression:
 ```bash
 oc get machineconfigpools
 ```
 Wait for all pools to reach an idle state (UPDATED=True, UPDATING=False, DEGRADED=False)  
   
-Lock In the 9000 Cluster MTU  
+#### Lock In the 9000 Cluster MTU  
 Once the infrastructure rolling reboots have completed cleanly, finalize the transition by wiping out the active migration tracking block and setting your default OVN-Kubernetes spec to 9000:  
 ```bash
 oc patch Network.operator.openshift.io cluster --type=merge --patch '{"spec":{"defaultNetwork":{"ovnKubernetesConfig":{"mtu":9000}},"migration":null}}'
 ```
   
-Verify Successful Runtime Execution  
+#### Verify Successful Runtime Execution  
 Confirm the cluster runtime recognizes the new parameters:  
 ```bash
 oc get network.config cluster -o jsonpath='{.status.clusterNetworkMTU}'
@@ -97,8 +98,8 @@ oc get network.operator.openshift.io cluster -o jsonpath="{.spec.defaultNetwork.
 ```
 The console should return a value of 9000.
 
-Validate it Actually Works  
-Step 1: Deploy Two Test Pods on Different Nodes  
+### Validate it Actually Works  
+#### Step 1: Deploy Two Test Pods on Different Nodes  
 Save the following manifest as mtu-test-pods.yaml. This uses anti-affinity to force the pods onto completely different physical bare-metal hosts.  
 [Source: `Sources/mtu-test-deploy.yaml`](Sources/mtu-test-deploy.yaml)
 <!-- embed-code: ./Sources/mtu-test-deploy.yaml -->
@@ -109,35 +110,12 @@ Apply the deployment:
 oc apply -f mtu-test-pods.yaml
 ```
   
-Step 2: Run the Validation Script  
+#### Step 2: Run the Validation Script  
 Once both pods are running, copy and paste this script into a file. It automatically fetches the names of your separate pods, finds the destination pod's internal cluster IP, and fires the precise jumbo packet.
 
- ping_9k_mtu.sh:
+[Source: `Sources/ping_9k_mtu.sh`](Sources/ping_9k_mtu.sh)
+<!-- embed-code: ./Sources/ping_9k_mtu.sh -->
 ```bash
-#!/bin/bash
-
-# 1. Wait for pods to be ready
-echo "Waiting for test pods to be running..."
-oc wait --for=condition=Ready pod -l app=mtu-test --timeout=60s
-
-# 2. Extract Pod Names and IPs
-POD_A=$(oc get pods -l app=mtu-test -o jsonpath='{.items[0].metadata.name}')
-POD_B=$(oc get pods -l app=mtu-test -o jsonpath='{.items[1].metadata.name}')
-POD_B_IP=$(oc get pod $POD_B -o jsonpath='{.status.podIP}')
-
-NODE_A=$(oc get pod $POD_A -o jsonpath='{.spec.nodeName}')
-NODE_B=$(oc get pod $POD_B -o jsonpath='{.spec.nodeName}')
-
-echo "=========================================================="
-echo "Source Pod:      $POD_A (on Node: $NODE_A)"
-echo "Destination IP:  $POD_B_IP ($POD_B on Node: $NODE_B)"
-echo "Executing:       ping -s 9000 $POD_B_IP"
-echo "Press [Ctrl + C] at any time to stop the test."
-echo "=========================================================="
-echo ""
-
-# 3. Execute the indefinite 9000 payload ping
-oc exec $POD_A -it -- ping -s 9000 $POD_B_IP
 ```
 Run the script from your bastion console:
 ```text
@@ -167,170 +145,18 @@ PING 10.130.0.178 (10.130.0.178): 9000 data bytes
 9008 bytes from 10.130.0.178: seq=3 ttl=62 time=0.530 ms
 9008 bytes from 10.130.0.178: seq=4 ttl=62 time=0.555 ms
 ```
-To benchmark speed between two pods on different nodes:
-iperf3-benchmarks.yaml
+To benchmark speed between two pods on different nodes:  
+[Source: `Sources/iperf3-server.yaml`](Sources/iperf3-server.yaml)
+<!-- embed-code: ./Sources/iperf3-server.yaml -->
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: iperf3-server
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: iperf3-server
-  template:
-    metadata:
-      labels:
-        app: iperf3-server
-    spec:
-      containers:
-      - name: iperf3
-        image: networkstatic/iperf3:latest
-        command: ["iperf3", "-s"]
-        ports:
-        - containerPort: 5201
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: iperf3-client
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: iperf3-client
-  template:
-    metadata:
-      labels:
-        app: iperf3-client
-    spec:
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchExpressions:
-                  - key: app
-                    operator: In
-                    values:
-                      - iperf3-server
-              topologyKey: "kubernetes.io/hostname"
-      containers:
-      - name: iperf3
-        image: networkstatic/iperf3:latest
-        command: ["/bin/sh", "-c", "apt-get update && apt-get install -y procps && sleep infinity"] # Fixed package manager to apt-get
 ```
-perf_9k_mtu.sh
+[Source: `Sources/iperf3-client.yaml`](Sources/iperf3-client.yaml)
+<!-- embed-code: ./Sources/iperf3-client.yaml -->
+```yaml
+```
+[Source: `Sources/perf_9k_mtu.sh`](Sources/perf_9k_mtu.sh)
+<!-- embed-code: ./Sources/perf_9k_mtu.sh -->
 ```bash
-#!/bin/bash
-
-echo "Waiting for iperf3 test pods to spin up in the default namespace..."
-oc wait --for=condition=Ready pod -l app=iperf3-server -n default --timeout=60s
-oc wait --for=condition=Ready pod -l app=iperf3-client -n default --timeout=60s
-
-# FIXED: Removed jsonpath completely. Uses standard columns to stay immune to Windows shell parsing.
-SERVER_POD=$(oc get pods -l app=iperf3-server -n default --no-headers | awk '{print $1}')
-CLIENT_POD=$(oc get pods -l app=iperf3-client -n default --no-headers | awk '{print $1}')
-
-# Retrieve IP and Node configurations using wide output formatting
-SERVER_IP=$(oc get pod "$SERVER_POD" -n default -o wide --no-headers | awk '{print $6}')
-SERVER_NODE=$(oc get pod "$SERVER_POD" -n default -o wide --no-headers | awk '{print $7}')
-CLIENT_NODE=$(oc get pod "$CLIENT_POD" -n default -o wide --no-headers | awk '{print $7}')
-
-echo "=========================================================="
-echo "Server Pod: $SERVER_POD (Node: $SERVER_NODE) [Namespace: default]"
-echo "Client Pod: $CLIENT_POD (Node: $CLIENT_NODE) [Namespace: default]"
-echo "=========================================================="
-echo ""
-
-echo "----------------------------------------------------------"
-echo "RUNNING BENCHMARK 1: Standard Frame (1500 MTU / 1360 MSS / 4 Streams)"
-echo "----------------------------------------------------------"
-# Start background CPU tracker using Debian/Ubuntu top flags
-oc exec "$CLIENT_POD" -n default -- top -b -d 1 -n 12 > /tmp/cpu_1500.txt &
-TRACKER_PID=$!
-
-# Execute iperf and log output to extract total speed
-oc exec "$CLIENT_POD" -n default -- iperf3 -c "$SERVER_IP" -t 10 -M 1360 -P 4 > /tmp/iperf_1500.txt
-cat /tmp/iperf_1500.txt
-
-wait $TRACKER_PID 2>/dev/null
-echo ""
-echo ">>> Avg CPU Idle during 1500 MTU test (Lower % means higher CPU load):"
-CPU_IDLE_1500=$(grep "%Cpu(s)" /tmp/cpu_1500.txt | awk '{print $8}' | awk '{sum+=$1} END {if (NR>0) print sum/NR; else print 0}')
-echo "${CPU_IDLE_1500}% Idle"
-
-# Extract final aggregate speed for 1500 MTU
-SPEED_1500=$(grep "SUM" /tmp/iperf_1500.txt | grep "receiver" | awk '{print $6}')
-if [ -z "$SPEED_1500" ]; then SPEED_1500=$(grep "SUM" /tmp/iperf_1500.txt | tail -n 1 | awk '{print $6}'); fi
-
-echo ""
-echo "----------------------------------------------------------"
-echo "RUNNING BENCHMARK 2: Jumbo Frame (9000 MTU / 8860 MSS / 4 Streams)"
-echo "----------------------------------------------------------"
-# Start background CPU tracker for the jumbo frame run
-oc exec "$CLIENT_POD" -n default -- top -b -d 1 -n 12 > /tmp/cpu_9000.txt &
-TRACKER_PID=$!
-
-# Execute iperf and log output to extract total speed
-oc exec "$CLIENT_POD" -n default -- iperf3 -c "$SERVER_IP" -t 10 -M 8860 -P 4 > /tmp/iperf_9000.txt
-cat /tmp/iperf_9000.txt
-
-wait $TRACKER_PID 2>/dev/null
-echo ""
-echo ">>> Avg CPU Idle during 9000 MTU test (Higher % means less CPU strain):"
-CPU_IDLE_9000=$(grep "%Cpu(s)" /tmp/cpu_9000.txt | awk '{print $8}' | awk '{sum+=$1} END {if (NR>0) print sum/NR; else print 0}')
-echo "${CPU_IDLE_9000}% Idle"
-
-# Extract final aggregate speed for 9000 MTU
-SPEED_9000=$(grep "SUM" /tmp/iperf_9000.txt | grep "receiver" | awk '{print $6}')
-if [ -z "$SPEED_9000" ]; then SPEED_9000=$(grep "SUM" /tmp/iperf_9000.txt | tail -n 1 | awk '{print $6}'); fi
-
-rm -f /tmp/cpu_1500.txt /tmp/cpu_9000.txt /tmp/iperf_1500.txt /tmp/iperf_9000.txt
-
-echo ""
-echo "=========================================================="
-echo "           CPU PERFORMANCE COMPARISON SUMMARY            "
-echo "=========================================================="
-awk -v idle1500="$CPU_IDLE_1500" -v idle9000="$CPU_IDLE_9000" '
-BEGIN {
-    if (idle1500 > 0 && idle9000 > 0) {
-        load1500 = 100 - idle1500;
-        load9000 = 100 - idle9000;
-        savings  = load1500 - load9000;
-
-        printf "â€¢ 1500 MTU Active CPU Consumption: %.2f%%\n", load1500;
-        printf "â€¢ 9000 MTU Active CPU Consumption: %.2f%%\n", load9000;
-        printf "â€¢ Total CPU Overhead Reduction:    %.2f%% less CPU load with Jumbo Frames!\n", savings;
-    } else {
-        print "Could not generate comparison: Missing valid CPU log calculations.";
-    }
-}'
-echo "=========================================================="
-
-echo ""
-echo "=========================================================="
-echo "          NETWORK THROUGHPUT COMPARISON SUMMARY           "
-echo "=========================================================="
-awk -v sp1500="$SPEED_1500" -v sp9000="$SPEED_9000" '
-BEGIN {
-    if (sp1500 > 0 && sp9000 > 0) {
-        gain_abs = sp9000 - sp1500;
-        gain_pct = (gain_abs / sp1500) * 100;
-
-        printf "â€¢ 1500 MTU Aggregate Speed:        %.2f Gbps\n", sp1500;
-        printf "â€¢ 9000 MTU Aggregate Speed:        %.2f Gbps\n", sp9000;
-        printf "â€¢ Total Network Performance Gain: +%.2f Gbps (+%.1f%% throughput improvement!)\n", gain_abs, gain_pct;
-    } else {
-        print "Could not generate comparison: Missing valid iperf bandwidth output.";
-    }
-}'
-echo "=========================================================="
-
-echo "Press [ENTER] to exit and close this window..."
-read -r
 ```
 Run the script (If on Windows and run vis PowerShell it will probably open a command window):
 ```bash
@@ -540,7 +366,7 @@ What to Analyze in the Terminal Window:
 - The CPU Idle Inverse Relationship:  
   The 1500 MTU test will show a lower % Idle number because the kernel spends excessive cycles building, context switching, and processing thousands of tiny standard frame fragments.The 9000 MTU test will yield a higher % Idle capacity (meaning less workload overhead on the host OS), while simultaneously achieving superior aggregate network throughput.
   
-Appendix:  
+### Appendix:  
 If your PromQL query `node_network_mtu_bytes{device!~"^(veth|docker|flannel|cali|tun|tap).*"}` is still surfacing interfaces running at 1500 or showing no values, it doesn't mean your change failed.This happens because the OpenShift node-exporter evaluates all physical and virtual linux interfaces present on the system host. In an OVN-Kubernetes cluster, there are several foundational and internal cluster networking devices that are explicitly designed to remain locked at 1500 or have unassigned MTU values.
   
 This may be helpful too for configuring interfaces in the future:
