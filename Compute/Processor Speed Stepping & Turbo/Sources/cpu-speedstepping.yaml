@@ -1,0 +1,24 @@
+apiVersion: tuned.openshift.io/v1
+kind: Tuned
+metadata:
+  name: cpu-speedstepping
+  namespace: openshift-cluster-node-tuning-operator
+spec:
+  profile:
+    - name: openshift-dynamic-cpu-scaling
+      data: |
+        [main]
+        summary=Enable dynamic CPU speed stepping / frequency scaling
+        include=openshift-control-plane
+        # include=openshift-node
+
+        [cpu]
+        # For intel_pstate / amd_pstate drivers, 'powersave' dynamically scales frequency with load.
+        # For acpi-cpufreq drivers, 'schedutil' or 'ondemand' can be used.
+        governor=powersave
+        energy_perf_bias=normal
+  recommend:
+    - profile: openshift-dynamic-cpu-scaling
+      priority: 15
+      match:
+        - label: node-role.kubernetes.io/master
