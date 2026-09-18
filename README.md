@@ -8,8 +8,14 @@ https://gist.github.com/singlecheeze/4032b0e32648accf8b856c8a48fb127e
 
 Helpful Formatting Hints for GitHub:
 ```text
-$${\color{lime}TODO:}$$  
-$${\color{deeppink}\textbf{\textsf{Note:}}}$$
+$${\color{lime}\textbf{\textsf{TODO:}}}$$ 
+
+$${\color{deeppink}\textbf{\textsf{Note:}}}$$ 
+
+$${\color{yellow}\textbf{\textsf{CRITICAL:}}}$$ 
+
+$${\color{red}\textbf{\textsf{WARNING:}}}$$ 
+  
   
 <details><summary><b>Main Topic</b></summary>
 <blockquote>
@@ -18,4 +24,8 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$
 </details> 
 </blockquote>
 </details>
+
+
+[Source: `Sources/somefile.yaml`](Sources/somefile.yaml)
+<!-- embed-code: ./Sources/somefile.yaml -->
 ```

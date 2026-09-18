@@ -1,0 +1,52 @@
+kind: NicClusterPolicy
+apiVersion: mellanox.com/v1alpha1
+metadata:
+  name: nic-cluster-policy
+spec:
+  ofedDriver:
+    image: doca-driver
+    livenessProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+    env:
+      - name: UNLOAD_STORAGE_MODULES   # This will unload the active kernel modules of the inbox driver
+        value: 'true'
+      - name: DISABLE_SAFE_DRIVER_LOADING   # This will cause the drivers to step on the inbox drivers aggressively to load them
+        value: 'true'
+    readinessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    repository: nvcr.io/nvidia/mellanox
+    startupProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 20
+    terminationGracePeriodSeconds: 300
+    upgradePolicy:
+      autoUpgrade: true
+      drain:
+        deleteEmptyDir: true
+        enable: true
+        force: true
+        podSelector: ''
+        timeoutSeconds: 300
+      maxParallelUpgrades: 1
+    version: doca3.5.0-26.07-0.7.7.0-0
+  rdmaSharedDevicePlugin:
+    config: |
+      {
+        "configList": [
+          {
+            "resourceName": "rdma_shared_device_dx_bond",
+            "rdmaHcaMax": 1000,
+            "selectors": {
+              "ifNames": [
+              "enp1s0f0np0",
+              "enp1s0f1np1"
+            ]
+            }
+          }
+        ]
+      }
+    image: k8s-rdma-shared-dev-plugin
+    repository: nvcr.io/nvidia/mellanox
+    version: 'sha256:2d28133fdee8c263e19b4d0656bf58d30513c9d13e47ef84bd68c5499b3c18ce'
