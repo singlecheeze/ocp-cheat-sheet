@@ -3,7 +3,7 @@ $${\color{lime}\textbf{\textsf{TODO:}}}$$ This needs to be updated somewhat.
 Ref: https://access.redhat.com/documentation/en-us/migration_toolkit_for_virtualization/2.2/html/installing_and_using_the_migration_toolkit_for_virtualization/prerequisites#creating-vddk-image_mtv   
 Ref: https://access.redhat.com/documentation/en-us/migration_toolkit_for_virtualization/2.3/html/installing_and_using_the_migration_toolkit_for_virtualization/migrating-vms-web-console#adding-source-provider_vmware  
 
-Download latest VDDK here:  
+Download latest VDDK here (_This has been taken down by Broadcom_):  
 https://developer.vmware.com/web/sdk/7.0/vddk  
 
 Upload VDDK:
