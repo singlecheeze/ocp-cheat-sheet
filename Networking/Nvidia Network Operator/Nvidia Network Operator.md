@@ -30,7 +30,7 @@ $${\color{yellow}\textbf{\textsf{CRITICAL:}}}$$ Apply the below `machineconfig` 
 - If you do `pause` your MCP, don't forget to resume it!
 - Default setting on my cluster was a ulimit of `8192`
   
-Generate the MachineConfig:
+Generate the MachineConfig:  
 [Source: `Sources/99-master-rdma-memlock.bu`](Sources/99-master-rdma-memlock.bu)
 <!-- embed-code: ./Sources/99-master-rdma-memlock.bu -->
 ```yaml
