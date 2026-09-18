@@ -63,6 +63,15 @@ cat /tmp/node-sizing.preview
 rm -f /tmp/node-sizing.preview
 '
 ```
+```text
+Starting pod/ocp113localdomain-debug-tj9pv ...
+To use host binaries, run `chroot /host`. Instead, if you need to access host namespaces, run `nsenter -a -t 1`.
+SYSTEM_RESERVED_MEMORY=8Gi
+SYSTEM_RESERVED_CPU=1.58
+SYSTEM_RESERVED_ES=1Gi
+
+Removing debug pod ...
+```
 #### Check your existing KubeletConfig objects
 
 Before creating anything:
