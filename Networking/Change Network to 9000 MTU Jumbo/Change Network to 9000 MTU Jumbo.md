@@ -1,6 +1,6 @@
 $${\color{deeppink}\textbf{\textsf{Note:}}}$$ Initial network configurations exist at `/etc/NetworkManager/system-connections/` on the nodes. If you ever get in a pickle and you have configured the nodes with a `core` login, you can login and use `nmtui` to fix the nodes.
 	
-How a cluster with bonded NICs looks from `nmtui` in a RHEL CoreOS node:
+How a cluster with bonded NICs looks from `nmtui` in a RHEL CoreOS node:  
 <img alt="image" src="Images/640031914-d4424e9c-0c11-4da9-9263-7d240ed5fc0e.png" />
 <img alt="image" src="Images/640031976-51f9980e-4ae8-42ca-8951-40bd39b9acaf.png" />
 <img alt="image" src="Images/640032011-7e39cd70-b0c9-4b91-bc1c-4380b2238f85.png" />
@@ -21,92 +21,27 @@ Update your NMState file (jumbo-bond-mtu.yaml)
 $${\color{deeppink}\textbf{\textsf{Note:}}}$$ Your interface names may vary...  
   
 If the cluster was built with only one interface and now you want to add another interface and form a bond (This might require changes for your exact setup):  
-jumbo-bond-mtu.yaml
+[Source: `Sources/set-lacp-bond-jumbo-frames.yaml`](Sources/set-lacp-bond-jumbo-frames.yaml)
+<!-- embed-code: ./Sources/set-lacp-bond-jumbo-frames.yaml -->
 ```yaml
-apiVersion: nmstate.io/v1
-kind: NodeNetworkConfigurationPolicy
-metadata:
-  name: set-lacp-bond-jumbo-frames
-spec:
-  nodeSelector:
-    kubernetes.io/os: linux
-  desiredState:
-    interfaces:
-      # 1. First physical interface
-      - name: enp1s0f0np0
-        type: ethernet
-        state: up
-        mtu: 9100
-      # 2. Second physical interface
-      - name: enp1s0f1np1
-        type: ethernet
-        state: up
-        mtu: 9100
-      # 3. LACP Aggregate Bond
-      - name: bond0
-        type: bond
-        state: up
-        mtu: 9100
-        link-aggregation:
-          mode: 802.3ad
-          port:
-            - enp1s0f0np0
-            - enp1s0f1np1
 ```
 If you *created* the cluster with a bond already built across two NIC, perhaps during the assisted installer setup...
   
-The initial NodeNetworkConfigurationPolicy (NNCP) was broken above when applied to a cluster that was built with two bonded NICs because it attempted to redefine the entire bond parameters (like mode: 802.3ad) inside NMState without referencing the existing configurations. NMState saw this as a command to destroy the existing bond and create a new one from scratch, which failed during reboot because it conflicted with the node's original network configuration.When using NMState to update an existing bond, you should only declare the attributes you want to change (the MTU) and let NMState merge them into the existing bond setup. You do not need to redefine the LACP mode or the ports array.Here is the corrected NNCP that safely modifies the MTU of bond0 and its slave interfaces without breaking the link aggregation:
+The initial NodeNetworkConfigurationPolicy (NNCP) was broken above when applied to a cluster that was built with two bonded NICs because it attempted to redefine the entire bond parameters (like mode: 802.3ad) inside NMState without referencing the existing configurations. 
+- NMState saw this as a command to destroy the existing bond and create a new one from scratch, which failed during reboot because it conflicted with the node's original network configuration.
+- When using NMState to update an existing bond, you should only declare the attributes you want to change (the MTU) and let NMState merge them into the existing bond setup. 
+- You do not need to redefine the LACP mode or the ports array.  
+   
+Here is the corrected NNCP that safely modifies the MTU of bond0 and its slave interfaces without breaking the link aggregation:  
+[Source: `Sources/set-lacp-bond-jumbo-frames-min.yaml`](Sources/set-lacp-bond-jumbo-frames-min.yaml)
+<!-- embed-code: ./Sources/set-lacp-bond-jumbo-frames-min.yaml -->
 ```yaml
-apiVersion: nmstate.io/v1
-kind: NodeNetworkConfigurationPolicy
-metadata:
-  name: set-lacp-bond-jumbo-frames
-spec:
-  nodeSelector:
-    kubernetes.io/os: linux
-  desiredState:
-    interfaces:
-      # 1. Update first slave interface MTU only
-      - name: enp1s0f0np0
-        type: ethernet
-        state: up
-        mtu: 9100
-      # 2. Update second slave interface MTU only
-      - name: enp1s0f1np1
-        type: ethernet
-        state: up
-        mtu: 9100
-      # 3. Update the existing bond0 MTU only
-      - name: bond0
-        type: bond
-        state: up
-        mtu: 9100
 ```
-There are times that you just need to adjust un-used NICs to a higher MTU to clear the ODF Alert as it looks at all NICs on the system:
+There are times that you just need to adjust un-used NICs to a higher MTU to clear the ODF Alert as it looks at all NICs on the system:  
+[Source: `Sources/set-jumbo-mtu.yaml`](Sources/set-jumbo-mtu.yaml)
+<!-- embed-code: ./Sources/set-jumbo-mtu.yaml -->
 ```yaml
-apiVersion: nmstate.io/v1
-kind: NodeNetworkConfigurationPolicy
-metadata:
-  name: set-jumbo-mtu
-spec:
-  nodeSelector:
-    kubernetes.io/os: linux
-  desiredState:
-    interfaces:
-      - mtu: 9100
-        name: eno1
-        type: ethernet
-      - mtu: 9100
-        name: usb0
-        type: ethernet
-      - mtu: 9100
-        name: enp193s0f0np0
-        type: ethernet
-      - mtu: 9100
-        name: enp193s0f1np1
-        type: ethernet
 ```
-
 Apply the manifest:
 ```bash
 oc apply -f jumbo-bond-mtu.yaml
@@ -118,7 +53,7 @@ oc get nnce
 *Do not proceed until all bare-metal nodes read 'SuccessfullyEnacted'.*
   
 Validate NIC MTU  
-```text
+```bash
 [root@ocp113 core]# ip link show | grep -i 'state up'
 4: enp1s0f0np0: <BROADCAST,MULTICAST,SLAVE,UP,LOWER_UP> mtu 9100 qdisc mq master bond0 state UP mode DEFAULT group default qlen 1000
 5: enp1s0f1np1: <BROADCAST,MULTICAST,SLAVE,UP,LOWER_UP> mtu 9100 qdisc mq master bond0 state UP mode DEFAULT group default qlen 1000
@@ -165,43 +100,10 @@ The console should return a value of 9000.
 Validate it Actually Works  
 Step 1: Deploy Two Test Pods on Different Nodes  
 Save the following manifest as mtu-test-pods.yaml. This uses anti-affinity to force the pods onto completely different physical bare-metal hosts.  
-mtu-test-pods.yaml
+[Source: `Sources/mtu-test-deploy.yaml`](Sources/mtu-test-deploy.yaml)
+<!-- embed-code: ./Sources/mtu-test-deploy.yaml -->
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mtu-test-deploy
-  namespace: default  # <-- Or whatever namespace you want
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: mtu-test
-  template:
-    metadata:
-      labels:
-        app: mtu-test
-    spec:
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchExpressions:
-                  - key: app
-                    operator: In
-                    values:
-                      - mtu-test
-              topologyKey: "kubernetes.io/hostname"
-      containers:
-      - name: alpine
-        image: alpine:latest
-        command: ["/bin/sh", "-c", "sleep infinity"]
-        securityContext:
-          capabilities:
-            add: ["NET_RAW"]
-
 ```
-  
 Apply the deployment:
 ```text
 oc apply -f mtu-test-pods.yaml

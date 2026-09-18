@@ -1,0 +1,29 @@
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: set-lacp-bond-jumbo-frames
+spec:
+  nodeSelector:
+    kubernetes.io/os: linux
+  desiredState:
+    interfaces:
+      # 1. First physical interface
+      - name: enp1s0f0np0
+        type: ethernet
+        state: up
+        mtu: 9100
+      # 2. Second physical interface
+      - name: enp1s0f1np1
+        type: ethernet
+        state: up
+        mtu: 9100
+      # 3. LACP Aggregate Bond
+      - name: bond0
+        type: bond
+        state: up
+        mtu: 9100
+        link-aggregation:
+          mode: 802.3ad
+          port:
+            - enp1s0f0np0
+            - enp1s0f1np1

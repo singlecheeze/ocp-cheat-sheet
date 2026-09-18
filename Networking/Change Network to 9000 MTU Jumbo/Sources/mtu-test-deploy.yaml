@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mtu-test-deploy
+  namespace: default  # <-- Or whatever namespace you want
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mtu-test
+  template:
+    metadata:
+      labels:
+        app: mtu-test
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - mtu-test
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: alpine
+        image: alpine:latest
+        command: ["/bin/sh", "-c", "sleep infinity"]
+        securityContext:
+          capabilities:
+            add: ["NET_RAW"]
