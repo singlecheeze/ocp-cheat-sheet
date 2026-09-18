@@ -80,7 +80,7 @@ spec:
           contents:
             source: data:text/plain;charset=utf-8;base64,W2NyaW8ucnVudGltZV0KZGVmYXVsdF91bGltaXRzID0gWwogICJtZW1sb2NrPS0xOi0xIgpdCg==
 ```
-How to check the Check CRI-O's configuration:
+How to check CRI-O's configuration:
 ```bash
 for NODE in ocp113.localdomain ocp115.localdomain; do
   echo
