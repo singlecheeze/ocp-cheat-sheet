@@ -3,6 +3,18 @@ Ref: https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/
 [Source: `Sources/odf-image-registry-pvc.yaml`](Sources/odf-image-registry-pvc.yaml)
 <!-- embed-code: ./Sources/odf-image-registry-pvc.yaml -->
 ```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odf-image-registry-pvc
+  namespace: openshift-image-registry
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: ocs-storagecluster-cephfs
 ```
 ```text
 oc patch configs.imageregistry.operator.openshift.io/cluster --type=merge --patch '{"spec":{"defaultRoute":true}}' 
