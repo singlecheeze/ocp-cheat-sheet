@@ -92,9 +92,9 @@ systemReserved:
 ```
 $${\color{deeppink}\textbf{\textsf{Note:}}}$$ Red Hat recommends modifying an existing KubeletConfig for a pool rather than accumulating multiple KubeletConfig resources for the same pool.
   
-Because ocp113 in the cluster you've shown me is a control-plane,master,worker node, I would target the master MCP, not just the worker MCP.
+Because `ocp113` in the cluster you've shown me is a `control-plane,master,worker` node, I would target the master MCP, not just the worker MCP.
    
-If you do not already have a KubeletConfig targeting master, I'd use this:
+If you do not already have a KubeletConfig targeting master, I'd use this:  
 [Source: `auto-sizing-master.yaml`](./auto-sizing-master.yaml)
 <!-- embed-code: ./auto-sizing-master.yaml -->
 ```yaml
@@ -133,7 +133,7 @@ oc get mcp master -w
 $${\color{deeppink}\textbf{\textsf{Note:}}}$$ If you've intentionally paused the master MCP, the configuration will render but will not actually reach the nodes until you unpause it.
 
 #### Verify after the node returns
-After ocp113 has rebooted:
+After nodes have rebooted:
 ```bash
 oc debug node/ocp113.localdomain -- chroot /host cat /etc/node-sizing.env
 ```
@@ -143,7 +143,8 @@ SYSTEM_RESERVED_MEMORY=8Gi
 SYSTEM_RESERVED_CPU=1.58
 SYSTEM_RESERVED_ES=1Gi
 ```
-The actual value depends on the RAM and CPU count. OpenShift 4.22 uses this memory formula:
+The actual value depends on the RAM and CPU count.  
+OpenShift 4.22 uses this memory formula:
 * 25% of the first 4 GiB
 * 20% of the next 4 GiB
 * 10% of the next 8 GiB
