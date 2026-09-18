@@ -1,0 +1,38 @@
+variant: openshift
+version: 4.17.0
+metadata:
+  name: 99-master-certificate-approve-systemd-service
+  labels:
+    machineconfiguration.openshift.io/role: master
+systemd:
+  units:
+  - name: csr-approve.service
+    enabled: true
+    contents: |
+        [Unit]
+        Description=This script approves pending certificates
+        [Service]
+        ExecStart=/etc/scripts/csr-approve.sh
+        [Install]
+        WantedBy=multi-user.target
+  - name: csr-approve.timer
+    enabled: true
+    contents: |
+        [Unit]
+        Description=Run csr-approve.service every 5 minutes
+        [Timer]
+        OnCalendar=*:0/5
+        Unit=csr-approve.service
+        [Install]
+        WantedBy=timers.target
+storage:
+  files:
+  - path: /etc/scripts/csr-approve.sh
+    mode: 0755
+    overwrite: true
+    contents:
+      verification: {}
+      inline: |
+        #!/bin/bash
+        export KUBECONFIG=/etc/kubernetes/static-pod-resources/kube-apiserver-certs/secrets/node-kubeconfigs/localhost-recovery.kubeconfig
+        oc get csr -o go-template='{{range .items}}{{if not .status}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}' | xargs --no-run-if-empty oc adm certificate approve 2>&1
