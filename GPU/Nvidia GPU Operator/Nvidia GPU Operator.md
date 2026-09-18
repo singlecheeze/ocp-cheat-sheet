@@ -214,6 +214,25 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$ I prefer this over putting only a 
 [Source: `Sources/nvidia-device-plugin-config.yaml`](Sources/nvidia-device-plugin-config.yaml)  
 <!-- embed-code: ./Sources/nvidia-device-plugin-config.yaml -->
 ```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvidia-device-plugin-config
+  namespace: nvidia-gpu-operator
+data:
+  full-gpu: |-
+    version: v1
+
+  a40-mps: |-
+    version: v1
+    flags:
+      migStrategy: none
+    sharing:
+      mps:
+        renameByDefault: true
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 2
 ```
 `replicas: 2` is just an example:
 - With MPS, NVIDIA divides both memory and compute capacity equally among the configured replicas. 
