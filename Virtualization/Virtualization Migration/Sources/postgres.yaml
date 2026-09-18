@@ -1,0 +1,23 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: postgres
+  namespace: percap
+spec:
+  running: false
+  template:
+    metadata:
+      labels:
+        internalService: svc-postgres-clusterip
+  domain:
+    devices:
+      interfaces:
+        - macAddress: '00:50:56:81:35:dd'
+          masquerade: {}
+          model: virtio
+          name: net-0
+          ports:
+            - port: 5432
+  networks:
+    - name: net-0
+      pod: {}
