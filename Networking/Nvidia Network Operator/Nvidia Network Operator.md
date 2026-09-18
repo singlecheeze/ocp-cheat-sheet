@@ -28,7 +28,7 @@ $${\color{red}\textbf{\textsf{WARNING:}}}$$ Deploy a `NodeFeatureDiscovery` oper
 $${\color{yellow}\textbf{\textsf{CRITICAL:}}}$$ Apply the below `machineconfig` as Red Hat specifically requires unlimited memlock on OpenShift GPU nodes for NIXL/RDMA because RDMA registration pins memory.
 - You may want to `pause` you `MachineConfigPool` (MCP) if you have other configs to apply as this will cause a rolling reboot of your nodes.
 - If you do `pause` your MCP, don't forget to resume it!
-- Default setting on my cluster was `8192`
+- Default setting on my cluster was a ulimit of `8192`
   
 Generate the MachineConfig:
 [Source: `Sources/99-master-rdma-memlock.bu`](Sources/99-master-rdma-memlock.bu)
