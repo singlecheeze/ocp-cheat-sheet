@@ -14,6 +14,30 @@ Create a manifest file named cpu-speedstepping-tuned.yaml (This is for a compact
 [Source: `Sources/cpu-speedstepping.yaml`](Sources/cpu-speedstepping.yaml)
 <!-- embed-code: ./Sources/cpu-speedstepping.yaml -->
 ```yaml
+apiVersion: tuned.openshift.io/v1
+kind: Tuned
+metadata:
+  name: cpu-speedstepping
+  namespace: openshift-cluster-node-tuning-operator
+spec:
+  profile:
+    - name: openshift-dynamic-cpu-scaling
+      data: |
+        [main]
+        summary=Enable dynamic CPU speed stepping / frequency scaling
+        include=openshift-control-plane
+        # include=openshift-node
+
+        [cpu]
+        # For intel_pstate / amd_pstate drivers, 'powersave' dynamically scales frequency with load.
+        # For acpi-cpufreq drivers, 'schedutil' or 'ondemand' can be used.
+        governor=powersave
+        energy_perf_bias=normal
+  recommend:
+    - profile: openshift-dynamic-cpu-scaling
+      priority: 15
+      match:
+        - label: node-role.kubernetes.io/master
 ```
 **Step 3: Check Kernel Parameters (If using Performance Profiles or Newer CPUs)**  
 If you are running Low Latency or Real-Time performance profiles (PerformanceProfile CRs), OpenShift may have appended kernel arguments that disable CPU idle C-states (e.g., intel_idle.max_cstate=0 or processor.max_cstate=1) or lock frequency.
@@ -49,6 +73,15 @@ To pass specific scaling driver arguments (such as amd_pstate=active for AMD CPU
 [Source: `Sources/99-enable-amd-pstate.yaml`](Sources/99-enable-amd-pstate.yaml)
 <!-- embed-code: ./Sources/99-enable-amd-pstate.yaml -->
 ```yaml
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: master
+  name: 99-enable-amd-pstate
+spec:
+  kernelArguments:
+    - "amd_pstate=active"
 ```
 Note on Modes:
 - amd_pstate=active: Enables Energy Performance Preference (EPP) mode where AMD firmware handles dynamic frequency scaling autonomously based on performance hints.
