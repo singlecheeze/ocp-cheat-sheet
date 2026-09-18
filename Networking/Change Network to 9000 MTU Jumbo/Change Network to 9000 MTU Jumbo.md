@@ -24,6 +24,35 @@ If the cluster was built with only one interface and now you want to add another
 [Source: `Sources/set-lacp-bond-jumbo-frames.yaml`](Sources/set-lacp-bond-jumbo-frames.yaml)
 <!-- embed-code: ./Sources/set-lacp-bond-jumbo-frames.yaml -->
 ```yaml
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: set-lacp-bond-jumbo-frames
+spec:
+  nodeSelector:
+    kubernetes.io/os: linux
+  desiredState:
+    interfaces:
+      # 1. First physical interface
+      - name: enp1s0f0np0
+        type: ethernet
+        state: up
+        mtu: 9100
+      # 2. Second physical interface
+      - name: enp1s0f1np1
+        type: ethernet
+        state: up
+        mtu: 9100
+      # 3. LACP Aggregate Bond
+      - name: bond0
+        type: bond
+        state: up
+        mtu: 9100
+        link-aggregation:
+          mode: 802.3ad
+          port:
+            - enp1s0f0np0
+            - enp1s0f1np1
 ```
 If you *created* the cluster with a bond already built across two NIC, perhaps during the assisted installer setup...
   
@@ -36,11 +65,56 @@ Here is the corrected NNCP that safely modifies the MTU of bond0 and its slave i
 [Source: `Sources/set-lacp-bond-jumbo-frames-min.yaml`](Sources/set-lacp-bond-jumbo-frames-min.yaml)
 <!-- embed-code: ./Sources/set-lacp-bond-jumbo-frames-min.yaml -->
 ```yaml
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: set-lacp-bond-jumbo-frames-min
+spec:
+  nodeSelector:
+    kubernetes.io/os: linux
+  desiredState:
+    interfaces:
+      # 1. Update first slave interface MTU only
+      - name: enp1s0f0np0
+        type: ethernet
+        state: up
+        mtu: 9100
+      # 2. Update second slave interface MTU only
+      - name: enp1s0f1np1
+        type: ethernet
+        state: up
+        mtu: 9100
+      # 3. Update the existing bond0 MTU only
+      - name: bond0
+        type: bond
+        state: up
+        mtu: 9100
 ```
 There are times that you just need to adjust un-used NICs to a higher MTU to clear the ODF Alert as it looks at all NICs on the system:  
 [Source: `Sources/set-jumbo-mtu.yaml`](Sources/set-jumbo-mtu.yaml)
 <!-- embed-code: ./Sources/set-jumbo-mtu.yaml -->
 ```yaml
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: set-jumbo-mtu
+spec:
+  nodeSelector:
+    kubernetes.io/os: linux
+  desiredState:
+    interfaces:
+      - mtu: 9100
+        name: eno1
+        type: ethernet
+      - mtu: 9100
+        name: usb0
+        type: ethernet
+      - mtu: 9100
+        name: enp193s0f0np0
+        type: ethernet
+      - mtu: 9100
+        name: enp193s0f1np1
+        type: ethernet
 ```
 Apply the manifest:
 ```bash
@@ -103,6 +177,38 @@ Save the following manifest as mtu-test-pods.yaml. This uses anti-affinity to fo
 [Source: `Sources/mtu-test-deploy.yaml`](Sources/mtu-test-deploy.yaml)
 <!-- embed-code: ./Sources/mtu-test-deploy.yaml -->
 ```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mtu-test-deploy
+  namespace: default  # <-- Or whatever namespace you want
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mtu-test
+  template:
+    metadata:
+      labels:
+        app: mtu-test
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - mtu-test
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: alpine
+        image: alpine:latest
+        command: ["/bin/sh", "-c", "sleep infinity"]
+        securityContext:
+          capabilities:
+            add: ["NET_RAW"]
 ```
 Apply the deployment:
 ```text
