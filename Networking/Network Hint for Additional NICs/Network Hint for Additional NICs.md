@@ -12,4 +12,21 @@ Tk9ERUlQX0hJTlQ9MTcyLjE2LjEuMQ==
 [Source: `Sources/99-master-nodeip-hint.yaml`](Sources/99-master-nodeip-hint.yaml)
 <!-- embed-code: ./Sources/99-master-nodeip-hint.yaml -->
 ```yaml
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-master-nodeip-hint
+  labels:
+    machineconfiguration.openshift.io/role: master
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+      - path: /etc/default/nodeip-configuration
+        mode: 0644
+        overwrite: true
+        contents:
+          source: data:text/plain;charset=utf-8;base64,Tk9ERUlQX0hJTlQ9MTcyLjE2LjEuMQ==
 ```
