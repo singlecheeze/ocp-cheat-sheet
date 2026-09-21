@@ -728,3 +728,102 @@ Flags: B - BLOCK-DEVICE; t - NVME-TCP-EXPORT
       nvme-tcp-server-port=4420 nvme-tcp-server-nqn="nqn.2026-09.com.mikrotik:rds2216.vm-storage-001" nvme-tcp-server-allow-host-name="" iscsi-export=no nfs-sharing=no smb-sharing=no media-sharing=no media-interface=none swap=no
       file-path=/raid10/vm-storage-001.img file-size=1024.0GiB file-offset=0
 ```
+### (Optional) Configure a target VLAN and IP on an Interface (Bond in this case)
+```bash
+/interface/vlan/add \
+    name=nvme-storage-vlan100 \
+    interface=rose-uplink \
+    vlan-id=100 \
+    mtu=9216 \
+    comment="OpenShift NVMe TCP Storage VLAN"
+```
+```bash
+/ip/address/add \
+    address=172.16.100.125/24 \
+    interface=nvme-storage-vlan100 \
+    comment="OpenShift NVMe TCP Storage"
+```
+$${\color{yellow}\textbf{\textsf{CRITICAL:}}}$$ If you need to configure OpenShift Nodes for a Storage Network, see here: [Source: `Networking/Configure VLAN 100 Nodes/Configure VLAN 100 Nodes.md`](Networking/Configure VLAN 100 Nodes/Configure VLAN 100 Nodes.md)  
+  
+### Verify NVMeoTCP Connectivity:  
+```bash
+for NODE in ocp113.localdomain ocp114.localdomain ocp115.localdomain; do
+  echo
+  echo "===== ${NODE} ====="
+
+    oc debug node/${NODE} --quiet -- chroot /host bash -c '
+      modprobe nvme_tcp
+    
+      echo "Route:"
+      ip route get 172.16.100.125
+    
+      echo
+      echo "NVMe discovery:"
+      nvme discover \
+        -t tcp \
+        -a 172.16.100.125 \
+        -s 4420
+    '
+done
+```
+```bash
+===== ocp113.localdomain =====
+Route:
+172.16.100.125 dev bond1.100 src 172.16.100.113 uid 0
+    cache
+
+NVMe discovery:
+
+Discovery Log Number of Records 1, Generation counter 2
+=====Discovery Log Entry 0======
+trtype:  tcp
+adrfam:  ipv4
+subtype: nvme subsystem
+treq:    not specified, sq flow control disable supported
+portid:  4420
+trsvcid: 4420
+subnqn:  nqn.2026-09.com.mikrotik:rds2216.vm-storage-001
+traddr:  172.16.100.125
+eflags:  none
+sectype: none
+
+===== ocp114.localdomain =====
+Route:
+172.16.100.125 dev bond1.100 src 172.16.100.114 uid 0
+    cache
+
+NVMe discovery:
+
+Discovery Log Number of Records 1, Generation counter 2
+=====Discovery Log Entry 0======
+trtype:  tcp
+adrfam:  ipv4
+subtype: nvme subsystem
+treq:    not specified, sq flow control disable supported
+portid:  4420
+trsvcid: 4420
+subnqn:  nqn.2026-09.com.mikrotik:rds2216.vm-storage-001
+traddr:  172.16.100.125
+eflags:  none
+sectype: none
+
+===== ocp115.localdomain =====
+Route:
+172.16.100.125 dev bond1.100 src 172.16.100.115 uid 0
+    cache
+
+NVMe discovery:
+
+Discovery Log Number of Records 1, Generation counter 2
+=====Discovery Log Entry 0======
+trtype:  tcp
+adrfam:  ipv4
+subtype: nvme subsystem
+treq:    not specified, sq flow control disable supported
+portid:  4420
+trsvcid: 4420
+subnqn:  nqn.2026-09.com.mikrotik:rds2216.vm-storage-001
+traddr:  172.16.100.125
+eflags:  none
+sectype: none
+```

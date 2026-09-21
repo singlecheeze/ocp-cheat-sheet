@@ -1,0 +1,80 @@
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: ocp113-nvme-storage-vlan100
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp113.localdomain
+  desiredState:
+    interfaces:
+      - name: bond1.100
+        description: NVMe TCP storage VLAN 100 over 100G bond1
+        type: vlan
+        state: up
+        mtu: 9000
+        vlan:
+          base-iface: bond1
+          id: 100
+        ipv4:
+          enabled: true
+          dhcp: false
+          address:
+            - ip: 172.16.100.113
+              prefix-length: 24
+        ipv6:
+          enabled: false
+
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: ocp114-nvme-storage-vlan100
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp114.localdomain
+  desiredState:
+    interfaces:
+      - name: bond1.100
+        description: NVMe TCP storage VLAN 100 over 100G bond1
+        type: vlan
+        state: up
+        mtu: 9000
+        vlan:
+          base-iface: bond1
+          id: 100
+        ipv4:
+          enabled: true
+          dhcp: false
+          address:
+            - ip: 172.16.100.114
+              prefix-length: 24
+        ipv6:
+          enabled: false
+
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: ocp115-nvme-storage-vlan100
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ocp115.localdomain
+  desiredState:
+    interfaces:
+      - name: bond1.100
+        description: NVMe TCP storage VLAN 100 over 100G bond1
+        type: vlan
+        state: up
+        mtu: 9000
+        vlan:
+          base-iface: bond1
+          id: 100
+        ipv4:
+          enabled: true
+          dhcp: false
+          address:
+            - ip: 172.16.100.115
+              prefix-length: 24
+        ipv6:
+          enabled: false
