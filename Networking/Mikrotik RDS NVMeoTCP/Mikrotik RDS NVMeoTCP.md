@@ -42,6 +42,7 @@ It should return nothing.
   
 ### Build the Creation Script:
 <details><summary><b>Show Script</b></summary>
+
 [Source: `Sources/build-ocp-raid10.rsc`](Sources/build-ocp-raid10.rsc)  
 <!-- embed-code: ./Sources/build-ocp-raid10.rsc -->  
 ```bash
