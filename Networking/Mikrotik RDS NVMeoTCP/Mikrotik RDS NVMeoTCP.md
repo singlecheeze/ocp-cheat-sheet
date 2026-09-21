@@ -45,6 +45,313 @@ It should return nothing.
 [Source: `Sources/build-ocp-raid10.rsc`](Sources/build-ocp-raid10.rsc)  
 <!-- embed-code: ./Sources/build-ocp-raid10.rsc -->  
 ```bash
+/system/script/add name=build-ocp-raid10 policy=read,write,policy,test source={
+    :put "=================================================="
+    :put " Building OpenShift Virtualization RAID10"
+    :put "=================================================="
+    :put ""
+
+    :local disks {"nvme1";"nvme2";"nvme3";"nvme4";"nvme5";"nvme6";"nvme7";"nvme8"}
+    :local mirrors {"raid10-m0";"raid10-m1";"raid10-m2";"raid10-m3"}
+
+    # --------------------------------------------------
+    # Verify RAID objects do not already exist
+    # --------------------------------------------------
+
+    :foreach r in={"raid10";"raid10-m0";"raid10-m1";"raid10-m2";"raid10-m3"} do={
+
+        :if ([:len [/disk find where slot=$r]] > 0) do={
+            :error ("RAID object already exists: " . $r)
+        }
+    }
+
+    # --------------------------------------------------
+    # Verify all eight NVMe devices
+    # --------------------------------------------------
+
+    :put "Checking NVMe devices..."
+
+    :foreach d in=$disks do={
+
+        :local rows [/disk print detail as-value where slot=$d]
+
+        :if ([:len $rows] = 0) do={
+            :error ("Required disk not found: " . $d)
+        }
+
+        :local master ($rows->0->"raid-master")
+        :local memberState ($rows->0->"raid-member-state")
+
+        :if (($master != "none") && ([:len $master] > 0)) do={
+            :error ("Disk " . $d . " already belongs to RAID master " . $master)
+        }
+
+        :if ([:len $memberState] > 0) do={
+            :error ("Disk " . $d . " still contains RAID metadata: " . $memberState)
+        }
+
+        :put ("  OK: " . $d)
+    }
+
+    :put ""
+    :put "All NVMe devices passed validation."
+    :put ""
+
+    # --------------------------------------------------
+    # Create top-level RAID0
+    #
+    # Four RAID1 mirror pairs
+    # 256 KiB RAID0 chunk
+    # 1 MiB full stripe
+    # --------------------------------------------------
+
+    :put "Creating raid10 RAID0..."
+
+    /disk add \
+        type=raid \
+        slot=raid10 \
+        raid-type=0 \
+        raid-device-count=4 \
+        raid-chunk-size=256K \
+        mount-filesystem=yes \
+        mount-read-only=no \
+        compress=no
+
+    :delay 2s
+
+    # --------------------------------------------------
+    # Create RAID1 mirrors
+    # --------------------------------------------------
+
+    :put "Creating raid10-m0..."
+
+    /disk add \
+        type=raid \
+        slot=raid10-m0 \
+        raid-type=1 \
+        raid-device-count=2 \
+        raid-master=raid10 \
+        raid-role=0 \
+        mount-filesystem=no \
+        compress=no
+
+    :delay 1s
+
+    :put "Creating raid10-m1..."
+
+    /disk add \
+        type=raid \
+        slot=raid10-m1 \
+        raid-type=1 \
+        raid-device-count=2 \
+        raid-master=raid10 \
+        raid-role=1 \
+        mount-filesystem=no \
+        compress=no
+
+    :delay 1s
+
+    :put "Creating raid10-m2..."
+
+    /disk add \
+        type=raid \
+        slot=raid10-m2 \
+        raid-type=1 \
+        raid-device-count=2 \
+        raid-master=raid10 \
+        raid-role=2 \
+        mount-filesystem=no \
+        compress=no
+
+    :delay 1s
+
+    :put "Creating raid10-m3..."
+
+    /disk add \
+        type=raid \
+        slot=raid10-m3 \
+        raid-type=1 \
+        raid-device-count=2 \
+        raid-master=raid10 \
+        raid-role=3 \
+        mount-filesystem=no \
+        compress=no
+
+    :delay 2s
+
+    # --------------------------------------------------
+    # Assign physical disks
+    # --------------------------------------------------
+
+    :put ""
+    :put "Assigning nvme1 + nvme2 -> raid10-m0"
+
+    /disk set nvme1 raid-master=raid10-m0 raid-role=0
+    /disk set nvme2 raid-master=raid10-m0 raid-role=1
+
+    :put "Assigning nvme3 + nvme4 -> raid10-m1"
+
+    /disk set nvme3 raid-master=raid10-m1 raid-role=0
+    /disk set nvme4 raid-master=raid10-m1 raid-role=1
+
+    :put "Assigning nvme5 + nvme6 -> raid10-m2"
+
+    /disk set nvme5 raid-master=raid10-m2 raid-role=0
+    /disk set nvme6 raid-master=raid10-m2 raid-role=1
+
+    :put "Assigning nvme7 + nvme8 -> raid10-m3"
+
+    /disk set nvme7 raid-master=raid10-m3 raid-role=0
+    /disk set nvme8 raid-master=raid10-m3 raid-role=1
+
+    :put ""
+    :put "RAID layout created."
+    :put ""
+
+    :delay 10s
+
+    # --------------------------------------------------
+    # Monitor synchronization
+    #
+    # On this RDS RouterOS exposes sync status through:
+    #
+    # state="clean, sync:repair, resync = ..."
+    #
+    # Once complete:
+    #
+    # state="clean"
+    # --------------------------------------------------
+
+    :local allClean false
+    :local loop 0
+    :local maxLoops 1440
+
+    :put "=================================================="
+    :put " Waiting for RAID1 synchronization"
+    :put "=================================================="
+    :put ""
+
+    :while (($allClean = false) && ($loop < $maxLoops)) do={
+
+        :set allClean true
+
+        # MikroTik documented RAID failure query
+        :local failedMembers [/disk print count-only where raid-member-failed]
+
+        :if ($failedMembers > 0) do={
+
+            :put ""
+            :put "ERROR: RAID member failure detected."
+            :put ""
+
+            /disk print detail where raid-member-failed
+
+            :error "RAID member failure detected."
+        }
+
+        :put "--------------------------------------------------"
+
+        # Check all four RAID1 mirrors
+        :foreach r in=$mirrors do={
+
+            :local rows [/disk print detail as-value where slot=$r]
+
+            :if ([:len $rows] = 0) do={
+                :error ("RAID device disappeared: " . $r)
+            }
+
+            :local raidStatus ($rows->0->"state")
+
+            :if ([:len $raidStatus] = 0) do={
+                :set raidStatus "initializing"
+            }
+
+            :put ($r . " = " . $raidStatus)
+
+            :if ($raidStatus = "clean") do={
+                # Mirror is synchronized
+            } else={
+                :set allClean false
+            }
+        }
+
+        # Show top-level RAID0 status
+        :local topRows [/disk print detail as-value where slot="raid10"]
+
+        :if ([:len $topRows] = 0) do={
+            :error "Top-level raid10 device disappeared."
+        }
+
+        :local topStatus ($topRows->0->"state")
+
+        :put ("raid10    = " . $topStatus)
+
+        :set loop ($loop + 1)
+
+        :if ($allClean = false) do={
+
+            :put ""
+            :put ("Synchronization check " . $loop)
+            :put "Checking again in 30 seconds..."
+            :put ""
+
+            :delay 30s
+        }
+    }
+
+    # --------------------------------------------------
+    # Timeout
+    # --------------------------------------------------
+
+    :if ($allClean = false) do={
+        :error "RAID mirrors did not finish synchronization within 12 hours."
+    }
+
+    # --------------------------------------------------
+    # Validate top-level RAID
+    # --------------------------------------------------
+
+    :local finalRows [/disk print detail as-value where slot="raid10"]
+    :local finalTopStatus ($finalRows->0->"state")
+
+    :if ($finalTopStatus = "clean") do={
+        # OK
+    } else={
+        :error ("RAID1 mirrors are clean but raid10 reports: " . $finalTopStatus)
+    }
+
+    # --------------------------------------------------
+    # Final status
+    # --------------------------------------------------
+
+    :put ""
+    :put "=================================================="
+    :put " RAID10 SYNCHRONIZATION COMPLETE"
+    :put "=================================================="
+    :put ""
+
+    :foreach r in=$mirrors do={
+
+        :local rows [/disk print detail as-value where slot=$r]
+        :local raidStatus ($rows->0->"state")
+
+        :put ("  " . $r . " = " . $raidStatus)
+    }
+
+    :put ("  raid10    = " . $finalTopStatus)
+
+    :put ""
+    :put "RAID geometry:"
+    :put "  RAID1 pairs:       4"
+    :put "  RAID0 chunk:       256 KiB"
+    :put "  Full stripe width: 1 MiB"
+    :put "  Compression:       disabled"
+    :put ""
+    :put "Next command:"
+    :put ""
+    :put "/disk format raid10 file-system=xfs label=ocp-storage mbr-partition-table=no"
+    :put ""
+}
 ```
 </details>
 
@@ -147,6 +454,42 @@ raid10: format done
 [Source: `Sources/verify-ocp-storage.rsc`](Sources/verify-ocp-storage.rsc)  
 <!-- embed-code: ./Sources/verify-ocp-storage.rsc -->  
 ```bash
+/system/script/add name=verify-ocp-storage policy=read,write,policy,test source={
+
+    :local rows [/disk print detail as-value where slot="raid10"]
+
+    :if ([:len $rows] = 0) do={
+        :error "raid10 not found."
+    }
+
+    :local state ($rows->0->"state")
+    :local fs ($rows->0->"fs")
+    :local mounted ($rows->0->"mounted")
+    :local size ($rows->0->"size")
+
+    :put "=================================================="
+    :put " OpenShift Storage Datastore"
+    :put "=================================================="
+    :put ("State:      " . $state)
+    :put ("Filesystem: " . $fs)
+    :put ("Mounted:    " . $mounted)
+    :put ("Size:       " . $size)
+    :put ""
+
+    :if ($state != "clean") do={
+        :error ("raid10 is not clean: " . $state)
+    }
+
+    :if ($fs != "xfs") do={
+        :error ("Expected XFS but found: " . $fs)
+    }
+
+    :if ($mounted != true) do={
+        :error "raid10 is not mounted."
+    }
+
+    :put "Datastore validation successful."
+}
 ```
 </details>
 
@@ -169,6 +512,36 @@ Datastore validation successful.
 [Source: `Sources/trim-ocp-storage.rsc`](Sources/trim-ocp-storage.rsc)  
 <!-- embed-code: ./Sources/trim-ocp-storage.rsc -->  
 ```bash
+/system/script/add name=trim-ocp-storage policy=read,write,policy,test source={
+
+    :local rows [/disk print detail as-value where slot="raid10"]
+
+    :if ([:len $rows] = 0) do={
+        :error "raid10 does not exist."
+    }
+
+    :local state ($rows->0->"state")
+    :local fs ($rows->0->"fs")
+    :local mounted ($rows->0->"mounted")
+
+    :if ($state != "clean") do={
+        :error ("Skipping TRIM: raid10 state is " . $state)
+    }
+
+    :if ($fs != "xfs") do={
+        :error ("Skipping TRIM: expected XFS but found " . $fs)
+    }
+
+    :if ($mounted != true) do={
+        :error "Skipping TRIM: raid10 is not mounted."
+    }
+
+    :log info "Starting TRIM on OpenShift VM datastore raid10"
+
+    /disk trim raid10
+
+    :log info "Completed TRIM on OpenShift VM datastore raid10"
+}
 ```
 </details>
 
@@ -187,6 +560,103 @@ Set up the TRIM Schedule:
 [Source: `Sources/create-ocp-vm-lun.rsc`](Sources/create-ocp-vm-lun.rsc)  
 <!-- embed-code: ./Sources/create-ocp-vm-lun.rsc -->  
 ```bash
+/system/script/add name=create-ocp-vm-lun policy=read,write,policy,test source={
+
+    # ==================================================
+    # EDIT THESE VALUES FOR EACH NEW VM BLOCK VOLUME
+    # ==================================================
+
+    :local volumeName "vm-storage-001"
+    :local volumeSize "1T"
+    :local nqn "nqn.2026-09.com.mikrotik:rds2216.vm-storage-001"
+
+    # ==================================================
+
+    :local backingFile ("raid10/" . $volumeName . ".img")
+
+    :local raidRows [/disk print detail as-value where slot="raid10"]
+
+    :if ([:len $raidRows] = 0) do={
+        :error "raid10 does not exist."
+    }
+
+    :local raidState ($raidRows->0->"state")
+    :local raidFs ($raidRows->0->"fs")
+    :local mounted ($raidRows->0->"mounted")
+
+    :if ($raidState != "clean") do={
+        :error ("raid10 is not clean: " . $raidState)
+    }
+
+    :if ($raidFs != "xfs") do={
+        :error ("raid10 is not XFS: " . $raidFs)
+    }
+
+    :if ($mounted != true) do={
+        :error "raid10 is not mounted."
+    }
+
+    :if ([:len [/disk find where slot=$volumeName]] > 0) do={
+        :error ("Disk object already exists: " . $volumeName)
+    }
+
+    :put "=================================================="
+    :put " Creating OpenShift Virtualization block volume"
+    :put "=================================================="
+    :put ("Name:    " . $volumeName)
+    :put ("Size:    " . $volumeSize)
+    :put ("Backing: " . $backingFile)
+    :put ("NQN:     " . $nqn)
+    :put ""
+
+    /disk add \
+        type=file \
+        slot=$volumeName \
+        file-path=$backingFile \
+        file-size=$volumeSize \
+        mount-filesystem=no \
+        mount-read-only=no \
+        compress=no
+
+    :delay 3s
+
+    :local lun [/disk find where slot=$volumeName]
+
+    :if ([:len $lun] = 0) do={
+        :error "File-backed block volume creation failed."
+    }
+
+    /disk set $lun \
+        nvme-tcp-export=yes \
+        nvme-tcp-server-port=4420 \
+        nvme-tcp-server-nqn=$nqn
+
+    :delay 3s
+
+    :local rows [/disk print detail as-value where slot=$volumeName]
+
+    :local exported ($rows->0->"nvme-tcp-export")
+    :local actualNqn ($rows->0->"nvme-tcp-server-nqn")
+    :local port ($rows->0->"nvme-tcp-server-port")
+
+    :if ($exported != true) do={
+        :error "NVMe/TCP export was not enabled."
+    }
+
+    :put ""
+    :put "=================================================="
+    :put " VM BLOCK VOLUME READY"
+    :put "=================================================="
+    :put ("Target: 172.16.1.125:" . $port)
+    :put ("NQN:    " . $actualNqn)
+    :put ("Size:   " . $volumeSize)
+    :put ("File:   " . $backingFile)
+    :put ""
+    :put "Discovery command:"
+    :put ""
+    :put "nvme discover -t tcp -a 172.16.1.125 -s 4420"
+    :put ""
+}
 ```
 </details>
 
