@@ -4,7 +4,7 @@ You need to wipe the RAID metadata from all eight physical NVMe devices before r
 - MikroTik specifically documents `file-system=wipe-quick` for removing obsolete RAID/filesystem metadata.
 
 Run these manually and answer y each time:
-```text
+```bash
 /disk format nvme1 file-system=wipe-quick
 /disk format nvme2 file-system=wipe-quick
 /disk format nvme3 file-system=wipe-quick
@@ -15,19 +15,19 @@ Run these manually and answer y each time:
 /disk format nvme8 file-system=wipe-quick
 ```
 Then verify:
-```text
+```bash
 /disk/print detail
 ```
 For nvme1 through nvme8, make sure you no longer see anything like:
-```text
+```bash
 raid-member-state="found raid superblock ..."
 ```
 And that:
-```text
+```bash
 raid-master=none
 ```
 Before rerunning the RAID creation script, remove any partially created logical RAID objects from this failed attempt:
-```text
+```bash
 /disk remove [find where slot="raid10-m0"]
 /disk remove [find where slot="raid10-m1"]
 /disk remove [find where slot="raid10-m2"]
@@ -35,15 +35,15 @@ Before rerunning the RAID creation script, remove any partially created logical 
 /disk remove [find where slot="raid10"]
 ```
 Then confirm:
-```text
+```bash
 /disk/print detail where slot~"raid10"
 ```
 It should return nothing.  
   
-### Build the Creation Script:
+### Build the Creation Script:  
+[Source: `Sources/build-ocp-raid10.rsc`](Sources/build-ocp-raid10.rsc)  
 <details><summary><b>Show Script</b></summary>
 
-[Source: `Sources/build-ocp-raid10.rsc`](Sources/build-ocp-raid10.rsc)  
 <!-- embed-code: ./Sources/build-ocp-raid10.rsc -->  
 ```bash
 /system/script/add name=build-ocp-raid10 policy=read,write,policy,test source={
@@ -356,12 +356,12 @@ It should return nothing.
 ```
 </details>
 
-### Run the Creation Script:
-```text
+### Run the Creation Script:  
+```bash
 /system/script/run build-ocp-raid10
 ```
-Output:
-```text
+Output:  
+```bash
 [admin@MikroTik-RDS] > /system/script/run build-ocp-raid10
 ==================================================
  Building OpenShift Virtualization RAID10
@@ -424,12 +424,12 @@ Next command:
 
 /disk format raid10 file-system=xfs label=ocp-storage mbr-partition-table=no
 ```
-### Format the RAID10 Array as XFS:
-```text
+### Format the RAID10 Array as XFS:  
+```bash
 /disk format raid10 file-system=xfs label=ocp-storage mbr-partition-table=no
 ```
-Output:
-```text
+Output:  
+```bash
 [admin@MikroTik-RDS] > /disk format raid10 file-system=xfs label=ocp-storage mbr-partition-table=no
 All data will be lost, are you sure? [y/N]: y
 Columns: OUTPUT
@@ -449,10 +449,10 @@ raid10: realtime =none                   extsz=4096   blocks=0, rtextents=0
 raid10: Discarding blocks...Done.                                                      
 raid10: format done       
 ```
-###  Build the Verify Storage Script:
+###  Build the Verify Storage Script:  
+[Source: `Sources/verify-ocp-storage.rsc`](Sources/verify-ocp-storage.rsc)  
 <details><summary><b>Show Script</b></summary>
 
-[Source: `Sources/verify-ocp-storage.rsc`](Sources/verify-ocp-storage.rsc)  
 <!-- embed-code: ./Sources/verify-ocp-storage.rsc -->  
 ```bash
 /system/script/add name=verify-ocp-storage policy=read,write,policy,test source={
@@ -494,8 +494,8 @@ raid10: format done
 ```
 </details>
 
-Output:
-```text
+Output:  
+```bash
 [admin@MikroTik-RDS] > /system/script/run verify-ocp-storage
 ==================================================
  OpenShift Storage Datastore
@@ -507,10 +507,10 @@ Size:       16003143565312
 
 Datastore validation successful.
 ```
-### Build the TRIM Script:
+### Build the TRIM Script:  
+[Source: `Sources/trim-ocp-storage.rsc`](Sources/trim-ocp-storage.rsc)  
 <details><summary><b>Show Script</b></summary>
 
-[Source: `Sources/trim-ocp-storage.rsc`](Sources/trim-ocp-storage.rsc)  
 <!-- embed-code: ./Sources/trim-ocp-storage.rsc -->  
 ```bash
 /system/script/add name=trim-ocp-storage policy=read,write,policy,test source={
@@ -547,7 +547,7 @@ Datastore validation successful.
 </details>
 
 Set up the TRIM Schedule:
-```text
+```bash
 /system/scheduler/add \
     name=trim-ocp-storage-weekly \
     interval=7d \
@@ -555,10 +555,10 @@ Set up the TRIM Schedule:
     on-event="/system/script/run trim-ocp-storage" \
     policy=read,write,policy,test
 ```
-### Build the LUN Creation Script:
-<details><summary><b>Show Script</b></summary>
-
+### Build the LUN Creation Script:  
 [Source: `Sources/create-ocp-vm-lun.rsc`](Sources/create-ocp-vm-lun.rsc)  
+<details><summary><b>Show Script</b></summary>
+ 
 <!-- embed-code: ./Sources/create-ocp-vm-lun.rsc -->  
 ```bash
 /system/script/add name=create-ocp-vm-lun policy=read,write,policy,test source={
@@ -661,8 +661,8 @@ Set up the TRIM Schedule:
 ```
 </details>
 
-Create a LUN:
-```text
+Create a LUN:  
+```bash
 [admin@MikroTik-RDS] > /system/script/run create-ocp-vm-lun
 ==================================================
  Creating OpenShift Virtualization block volume
@@ -685,8 +685,8 @@ Discovery command:
 
 nvme discover -t tcp -a 172.16.1.125 -s 4420
 ```
-Check the RAID:
-```text
+Check the RAID:  
+```bash
 [admin@MikroTik-RDS] > /disk/print detail where slot~"raid10"
 Flags: B - BLOCK-DEVICE; M - MOUNTED; r - RAID-MEMBER
 26 BM  type=raid slot="raid10" slot-default="" parent="" fs-label="ocp-storage" fs-uuid="40437dbc-2318-45dc-817b-b3bb95cf48ab" fs=xfs model="RAID0 striped" size=16 003 143 565 312 free=14 789 895 307 264 total-inodes=1 562 806 656
@@ -709,7 +709,7 @@ Flags: B - BLOCK-DEVICE; M - MOUNTED; r - RAID-MEMBER
        raid-master=raid10 raid-role=3 raid-member-failed=no raid-member-state="3:in_sync" state="clean" raid-uuid="e8e03b13-32cbf0e1-ba36b210-c32e0583" nvme-tcp-export=no iscsi-export=no nfs-sharing=no smb-sharing=no media-sharing=no
        media-interface=none swap=no
 ```
-```text
+```bash
 [admin@MikroTik-RDS] > :foreach r in={"raid10-m0";"raid10-m1";"raid10-m2";"raid10-m3";"raid10"} do={
 {...     :local state ([/disk print detail as-value where slot=$r]->0->"state")
 {...     :put ($r . " = " . $state)
@@ -720,8 +720,8 @@ raid10-m2 = clean
 raid10-m3 = clean
 raid10 = clean
 ```
-Check the LUN:
-```text
+Check the LUN:  
+```bash
 [admin@MikroTik-RDS] > /disk/print detail where slot="vm-storage-001"
 Flags: B - BLOCK-DEVICE; t - NVME-TCP-EXPORT
 31 Bt type=file slot="vm-storage-001" slot-default="" parent="" fs=- model="/raid10/vm-storage-001.img" size=1 099 511 627 776 mount-filesystem=no mount-read-only=no compress=no sector-size=512 raid-master=none nvme-tcp-export=yes
