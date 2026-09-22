@@ -827,3 +827,69 @@ traddr:  172.16.100.125
 eflags:  none
 sectype: none
 ```
+### Why is it working if you didn't explicitly configure VLAN 100 on the switch in the middle?
+
+There are a few likely explanations:
+- If the switch has VLAN filtering disabled, it can behave essentially as a VLAN-transparent Layer-2 bridge. An 802.1Q frame comes in with VLAN 100 and gets forwarded out the other side without the switch making a VLAN membership decision.
+  - `/interface/bridge/print detail` If `vlan-filtering=no` that would explain why it works without an explicit VLAN 100 entry.
+  - The bridge isn't enforcing a VLAN table, so tagged frames can traverse it transparently.
+- Alternatively, if the switch uses a trunk configuration that effectively permits all VLANs, VLAN 100 is already allowed even though you didn't add it specifically.
+- Even though it works now, I would explicitly configure VLAN 100 on the switch rather than relying on permissive/transparent behavior.
+
+#### What the explicit VLAN 100 configuration would be:
+For storage VLAN 100, only these interfaces need tagged membership:
+```bash
+BM Node 113 Dx RoCE
+BM Node 114 Dx RoCE
+BM Node 115 Dx RoCE
+rose-downlink
+```
+You do not need `bridge` in the tagged list because the switch itself doesn't need an IP on `172.16.100.0/24`.
+  
+The entry would be:
+```bash
+/interface/bridge/vlan/add \
+    bridge=bridge \
+    vlan-ids=100 \
+    tagged="BM Node 113 Dx RoCE","BM Node 114 Dx RoCE","BM Node 115 Dx RoCE",rose-downlink
+```
+Then:
+```bash
+/interface/bridge/vlan/print detail
+```
+Would contain something equivalent to:
+```bash
+bridge=bridge
+vlan-ids=100
+tagged=BM Node 113 Dx RoCE,
+       BM Node 114 Dx RoCE,
+       BM Node 115 Dx RoCE,
+       rose-downlink
+```
+Those are trunk interfaces, so VLAN 100 stays tagged in both directions. MikroTik's bridge VLAN table works exactly this way: `tagged=` identifies the trunk ports permitted to carry that VLAN.
+  
+But do not enable vlan-filtering=yes yet.  
+  
+$${\color{yellow}\textbf{\textsf{CRITICAL:}}}$$ This is important.
+  
+The switch currently carries quite a few other connections:
+```bash
+BM Node 113 Dx RoCE
+BM Node 114 Dx RoCE
+BM Node 115 Dx RoCE
+
+BM Node 113 Lx Mgmt
+BM Node 114 Lx Mgmt
+BM Node 115 Lx Mgmt
+
+ROSE Downlink
+ESXi
+uplink
+```
+With `vlan-filtering=no`, any other tagged VLANs currently traversing that bridge are also being passed transparently.
+  
+If we simply do:
+```bash
+/interface/bridge/set bridge vlan-filtering=yes
+```
+After adding only VLAN 100, any other tagged VLAN that is currently using the switch but is absent from `/interface bridge vlan` can start getting dropped. MikroTik specifically recommends building the VLAN table completely before enabling VLAN filtering because of this risk.

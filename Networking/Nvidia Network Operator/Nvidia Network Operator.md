@@ -784,33 +784,33 @@ oc new-project rdma-test
 Create a `MacvlanNetwork` from the Nvidia Network Operator  
 $${\color{deeppink}\textbf{\textsf{Note:}}}$$ `exclude` and `range_start` / `range_end`  
 - You do not inherently need those exact exclusions. The exclude list is only there to keep Whereabouts from assigning specific addresses that you want reserved for gateways, switches, static hosts, future infrastructure, or other non-pod use.
-- For a `172.16.100.0/24` range, that is the broadcast address. This exclusion is redundant, because Whereabouts already excludes the network and broadcast addresses from allocation. The upstream code explicitly describes valid IPs as excluding those two addresses.
+- For a `172.16.101.0/24` range, that is the broadcast address. This exclusion is redundant, because Whereabouts already excludes the network and broadcast addresses from allocation. The upstream code explicitly describes valid IPs as excluding those two addresses.
 - Whereabouts coordinates addresses that it allocates to pods across the cluster. It does not automatically discover every statically configured address already present on your physical network. Therefore, if a router, switch, server, VRRP address, or manually configured device uses `.1`, `.2`, or `.3`, you should explicitly keep those addresses outside the pod allocation pool to avoid duplicate-IP conflicts. Red Hat defines exclude as an optional list of addresses or CIDR ranges that Whereabouts must not assign.
 - Whereabouts supports (`range_start` and `range_end`) or (`exclude`) specifically for defining the allocatable portion of a subnet.
 - For your current dedicated RDMA network, a clean configuration would likely be (That keeps `.1` through `.9` available for future infrastructure without needing a collection of CIDR exclusions.):
   - ```json
     {
       "type": "whereabouts",
-      "range": "172.16.100.0/24",
-      "range_start": "172.16.100.10",
-      "range_end": "172.16.100.254"
+      "range": "172.16.101.0/24",
+      "range_start": "172.16.101.10",
+      "range_end": "172.16.101.254"
     }
     ```
-  - Is the same as (Whereabouts already excludes the /24 broadcast address, 172.16.100.255, so you do not need to list it. A completely explicit version, including the already-unusable broadcast address...):
+  - Is the same as (Whereabouts already excludes the /24 broadcast address, 172.16.101.255, so you do not need to list it. A completely explicit version, including the already-unusable broadcast address...):
     ```json
     {
       "type": "whereabouts",
-      "range": "172.16.100.0/24",
+      "range": "172.16.101.0/24",
       "exclude": [
-        "172.16.100.0/29",
-        "172.16.100.8/31",
-        "172.16.100.255/32"
+        "172.16.101.0/29",
+        "172.16.101.8/31",
+        "172.16.101.255/32"
       ]
     }
     ```
-    172.16.100.0/29    → 172.16.100.0–172.16.100.7  
-    172.16.100.8/31    → 172.16.100.8–172.16.100.9  
-    172.16.100.255/32  → 172.16.100.255  
+    172.16.101.0/29    → 172.16.101.0–172.16.101.7  
+    172.16.101.8/31    → 172.16.101.8–172.16.101.9  
+    172.16.101.255/32  → 172.16.101.255  
   
 [Source: `Sources/rdma-bond.yaml`](Sources/rdma-bond.yaml)
 <!-- embed-code: ./Sources/rdma-bond.yaml -->
@@ -827,10 +827,10 @@ spec:
   ipam: |
     {
       "type": "whereabouts",
-      "range": "172.16.100.0/24",
+      "range": "172.16.101.0/24",
       "exclude": [
-        "172.16.100.0/30",
-        "172.16.100.255/32"
+        "172.16.101.0/30",
+        "172.16.101.255/32"
       ]
     }
 ```
@@ -877,7 +877,7 @@ metadata:
   labels:
     nvidia.network-operator.state: state-Macvlan-Network
 spec:
-  config: '{ "cniVersion":"0.3.1", "name":"rdma-bond", "type":"macvlan","master": "bond1","mode" : "bridge","mtu" : 9000,"ipam":{"type":"whereabouts","range":"172.16.100.0/24"} }'
+  config: '{ "cniVersion":"0.3.1", "name":"rdma-bond", "type":"macvlan","master": "bond1","mode" : "bridge","mtu" : 9000,"ipam":{"type":"whereabouts","range":"172.16.101.0/24"} }'
 ```
 
 Export a few env vars to make things easier:
@@ -958,25 +958,25 @@ done
 ===== macvlan-ping-113 =====
 lo               UNKNOWN        127.0.0.1/8 ::1/128
 eth0@if1616      UP             10.128.0.54/23 fe80::858:aff:fe80:36/64
-net1@if1597      UP             172.16.100.4/24 fd14:231f:7507:c150:d4a2:72ff:fe82:79db/64 fe80::d4a2:72ff:fe82:79db/64
+net1@if1597      UP             172.16.101.4/24 fd14:231f:7507:c150:d4a2:72ff:fe82:79db/64 fe80::d4a2:72ff:fe82:79db/64
 default via 10.128.0.1 dev eth0
 10.128.0.0/23 dev eth0 proto kernel scope link src 10.128.0.54
 10.128.0.0/14 via 10.128.0.1 dev eth0
 100.64.0.0/16 via 10.128.0.1 dev eth0
 169.254.0.5 via 10.128.0.1 dev eth0
-172.16.100.0/24 dev net1 proto kernel scope link src 172.16.100.4
+172.16.101.0/24 dev net1 proto kernel scope link src 172.16.101.4
 172.30.0.0/16 via 10.128.0.1 dev eth0
 
 ===== macvlan-ping-115 =====
 lo               UNKNOWN        127.0.0.1/8 ::1/128
 eth0@if462       UP             10.129.1.156/23 fe80::858:aff:fe81:19c/64
-net1@if457       UP             172.16.100.5/24 fd14:231f:7507:c150:e0c2:75ff:fea5:89c6/64 fe80::e0c2:75ff:fea5:89c6/64
+net1@if457       UP             172.16.101.5/24 fd14:231f:7507:c150:e0c2:75ff:fea5:89c6/64 fe80::e0c2:75ff:fea5:89c6/64
 default via 10.129.0.1 dev eth0
 10.128.0.0/14 via 10.129.0.1 dev eth0
 10.129.0.0/23 dev eth0 proto kernel scope link src 10.129.1.156
 100.64.0.0/16 via 10.129.0.1 dev eth0
 169.254.0.5 via 10.129.0.1 dev eth0
-172.16.100.0/24 dev net1 proto kernel scope link src 172.16.100.5
+172.16.101.0/24 dev net1 proto kernel scope link src 172.16.101.5
 172.30.0.0/16 via 10.129.0.1 dev eth0
 ```
 ```bash
@@ -1008,8 +1008,8 @@ IP115="$(
 
 echo "ocp113 net1: $IP113"
 echo "ocp115 net1: $IP115"
-ocp113 net1: 172.16.100.4
-ocp115 net1: 172.16.100.5
+ocp113 net1: 172.16.101.4
+ocp115 net1: 172.16.101.5
 ```
 ```bash
 [root@ocp113 core]# oc exec -n rdma-test macvlan-ping-113 -- \
@@ -1017,24 +1017,24 @@ ocp115 net1: 172.16.100.5
 
 oc exec -n rdma-test macvlan-ping-115 -- \
   ping -4 -I net1 -c 5 -W 2 "$IP113"
-PING 172.16.100.5 (172.16.100.5) from 172.16.100.4 net1: 56(84) bytes of data.
-64 bytes from 172.16.100.5: icmp_seq=1 ttl=64 time=0.362 ms
-64 bytes from 172.16.100.5: icmp_seq=2 ttl=64 time=0.180 ms
-64 bytes from 172.16.100.5: icmp_seq=3 ttl=64 time=0.158 ms
-64 bytes from 172.16.100.5: icmp_seq=4 ttl=64 time=0.179 ms
-64 bytes from 172.16.100.5: icmp_seq=5 ttl=64 time=0.166 ms
+PING 172.16.101.5 (172.16.101.5) from 172.16.101.4 net1: 56(84) bytes of data.
+64 bytes from 172.16.101.5: icmp_seq=1 ttl=64 time=0.362 ms
+64 bytes from 172.16.101.5: icmp_seq=2 ttl=64 time=0.180 ms
+64 bytes from 172.16.101.5: icmp_seq=3 ttl=64 time=0.158 ms
+64 bytes from 172.16.101.5: icmp_seq=4 ttl=64 time=0.179 ms
+64 bytes from 172.16.101.5: icmp_seq=5 ttl=64 time=0.166 ms
 
---- 172.16.100.5 ping statistics ---
+--- 172.16.101.5 ping statistics ---
 5 packets transmitted, 5 received, 0% packet loss, time 4113ms
 rtt min/avg/max/mdev = 0.158/0.209/0.362/0.076 ms
-PING 172.16.100.4 (172.16.100.4) from 172.16.100.5 net1: 56(84) bytes of data.
-64 bytes from 172.16.100.4: icmp_seq=1 ttl=64 time=0.160 ms
-64 bytes from 172.16.100.4: icmp_seq=2 ttl=64 time=0.152 ms
-64 bytes from 172.16.100.4: icmp_seq=3 ttl=64 time=0.157 ms
-64 bytes from 172.16.100.4: icmp_seq=4 ttl=64 time=0.156 ms
-64 bytes from 172.16.100.4: icmp_seq=5 ttl=64 time=0.182 ms
+PING 172.16.101.4 (172.16.101.4) from 172.16.101.5 net1: 56(84) bytes of data.
+64 bytes from 172.16.101.4: icmp_seq=1 ttl=64 time=0.160 ms
+64 bytes from 172.16.101.4: icmp_seq=2 ttl=64 time=0.152 ms
+64 bytes from 172.16.101.4: icmp_seq=3 ttl=64 time=0.157 ms
+64 bytes from 172.16.101.4: icmp_seq=4 ttl=64 time=0.156 ms
+64 bytes from 172.16.101.4: icmp_seq=5 ttl=64 time=0.182 ms
 
---- 172.16.100.4 ping statistics ---
+--- 172.16.101.4 ping statistics ---
 5 packets transmitted, 5 received, 0% packet loss, time 4099ms
 rtt min/avg/max/mdev = 0.152/0.161/0.182/0.010 ms
 ```
@@ -1045,24 +1045,24 @@ Test the 9000-byte path:
 
 oc exec -n rdma-test macvlan-ping-115 -- \
   ping -4 -I net1 -M do -s 8972 -c 5 -W 2 "$IP113"
-PING 172.16.100.5 (172.16.100.5) from 172.16.100.4 net1: 8972(9000) bytes of data.
-8980 bytes from 172.16.100.5: icmp_seq=1 ttl=64 time=0.167 ms
-8980 bytes from 172.16.100.5: icmp_seq=2 ttl=64 time=0.191 ms
-8980 bytes from 172.16.100.5: icmp_seq=3 ttl=64 time=0.182 ms
-8980 bytes from 172.16.100.5: icmp_seq=4 ttl=64 time=0.179 ms
-8980 bytes from 172.16.100.5: icmp_seq=5 ttl=64 time=0.188 ms
+PING 172.16.101.5 (172.16.101.5) from 172.16.101.4 net1: 8972(9000) bytes of data.
+8980 bytes from 172.16.101.5: icmp_seq=1 ttl=64 time=0.167 ms
+8980 bytes from 172.16.101.5: icmp_seq=2 ttl=64 time=0.191 ms
+8980 bytes from 172.16.101.5: icmp_seq=3 ttl=64 time=0.182 ms
+8980 bytes from 172.16.101.5: icmp_seq=4 ttl=64 time=0.179 ms
+8980 bytes from 172.16.101.5: icmp_seq=5 ttl=64 time=0.188 ms
 
---- 172.16.100.5 ping statistics ---
+--- 172.16.101.5 ping statistics ---
 5 packets transmitted, 5 received, 0% packet loss, time 4133ms
 rtt min/avg/max/mdev = 0.167/0.181/0.191/0.008 ms
-PING 172.16.100.4 (172.16.100.4) from 172.16.100.5 net1: 8972(9000) bytes of data.
-8980 bytes from 172.16.100.4: icmp_seq=1 ttl=64 time=0.185 ms
-8980 bytes from 172.16.100.4: icmp_seq=2 ttl=64 time=0.198 ms
-8980 bytes from 172.16.100.4: icmp_seq=3 ttl=64 time=0.176 ms
-8980 bytes from 172.16.100.4: icmp_seq=4 ttl=64 time=0.181 ms
-8980 bytes from 172.16.100.4: icmp_seq=5 ttl=64 time=0.212 ms
+PING 172.16.101.4 (172.16.101.4) from 172.16.101.5 net1: 8972(9000) bytes of data.
+8980 bytes from 172.16.101.4: icmp_seq=1 ttl=64 time=0.185 ms
+8980 bytes from 172.16.101.4: icmp_seq=2 ttl=64 time=0.198 ms
+8980 bytes from 172.16.101.4: icmp_seq=3 ttl=64 time=0.176 ms
+8980 bytes from 172.16.101.4: icmp_seq=4 ttl=64 time=0.181 ms
+8980 bytes from 172.16.101.4: icmp_seq=5 ttl=64 time=0.212 ms
 
---- 172.16.100.4 ping statistics ---
+--- 172.16.101.4 ping statistics ---
 5 packets transmitted, 5 received, 0% packet loss, time 4111ms
 rtt min/avg/max/mdev = 0.176/0.190/0.212/0.013 ms
 ```
