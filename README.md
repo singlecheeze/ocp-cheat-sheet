@@ -28,4 +28,6 @@ $${\color{red}\textbf{\textsf{WARNING:}}}$$
 
 [Source: `Sources/somefile.yaml`](Sources/somefile.yaml)
 <!-- embed-code: ./Sources/somefile.yaml -->
+
+<img alt="image" src="Images/somefile.png" />
 ```

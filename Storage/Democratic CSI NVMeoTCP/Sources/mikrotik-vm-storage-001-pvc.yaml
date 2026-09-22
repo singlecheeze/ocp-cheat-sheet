@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mikrotik-vm-storage-001
+  namespace: nvme-test
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  volumeMode: Block
+  storageClassName: mikrotik-nvme
+
+  resources:
+    requests:
+      storage: 1Ti

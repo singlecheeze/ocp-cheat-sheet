@@ -1,0 +1,48 @@
+csiDriver:
+  name: org.democratic-csi.node-manual
+  enabled: true
+  attachRequired: true
+
+controller:
+  enabled: true
+
+  externalAttacher:
+    enabled: true
+
+  externalProvisioner:
+    enabled: false
+
+  externalResizer:
+    enabled: false
+
+  externalSnapshotter:
+    enabled: false
+
+driver:
+  config:
+    driver: node-manual
+
+node:
+  enabled: true
+
+  # Required so NVMe/TCP uses the RHCOS host routing table.
+  # Therefore traffic to 172.16.100.125 follows bond1.100.
+  hostNetwork: true
+
+  rbac:
+    enabled: true
+    openshift:
+      privileged: true
+
+  driver:
+    # Upstream specifically notes null for OpenShift-like OSes.
+    localtimeHostPath: null
+
+    # We are not currently restricting the RDS target by host NQN,
+    # therefore the host /etc/nvme directory does not need mounting.
+    nvmeDirMountEnabled: false
+
+    logLevel: info
+
+storageClasses: []
+volumeSnapshotClasses: []

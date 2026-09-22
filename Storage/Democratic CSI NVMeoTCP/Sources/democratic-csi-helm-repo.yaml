@@ -1,0 +1,8 @@
+apiVersion: helm.openshift.io/v1beta1
+kind: ProjectHelmChartRepository
+metadata:
+  name: democratic-csi-helm-repo
+  namespace: democratic-csi
+spec:
+  connectionConfig:
+    url: 'https://democratic-csi.github.io/charts/'

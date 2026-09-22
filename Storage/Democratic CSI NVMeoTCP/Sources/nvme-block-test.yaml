@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nvme-block-test
+  namespace: nvme-test
+spec:
+  serviceAccountName: nvme-block-test
+  containers:
+    - name: test
+      image: registry.access.redhat.com/ubi9/ubi:latest
+
+      securityContext:
+        privileged: true
+
+      command:
+        - /bin/bash
+        - -c
+        - |
+          echo "=== MikroTik NVMe raw block device ==="
+          ls -l /dev/mikrotik-nvme
+
+          echo
+          echo "=== Device size ==="
+          blockdev --getsize64 /dev/mikrotik-nvme
+
+          echo
+          echo "=== First 4 KiB read test ==="
+          dd if=/dev/mikrotik-nvme of=/dev/null bs=4096 count=1 status=progress
+
+          echo
+          echo "NVMe block device successfully attached."
+          sleep infinity
+
+      volumeDevices:
+        - name: mikrotik-storage
+          devicePath: /dev/mikrotik-nvme
+
+  volumes:
+    - name: mikrotik-storage
+      persistentVolumeClaim:
+        claimName: mikrotik-vm-storage-001

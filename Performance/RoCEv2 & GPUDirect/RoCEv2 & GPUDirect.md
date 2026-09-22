@@ -18,7 +18,7 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$ Sign in to [Nvidia NGC](https://or
 - Generate a personal API key with NGC Catalog container pull access, and retain the key because NGC does not display it again.
 - NVIDIA’s documented registry username is the literal value `$oauthtoken`; the API key is supplied as the password.  
 - Use  https://org.ngc.nvidia.com/account/api-keys:  
-<img width="618" height="560" alt="image" src="https://gist.github.com/user-attachments/assets/171d4734-0e81-49cd-94d5-ac96187e1fee" />
+<img alt="image" src="Images/649545569-171d4734-0e81-49cd-94d5-ac96187e1fee.png" />
 
 $${\color{deeppink}\textbf{\textsf{Validation Test Script:}}}$$ `gpudirect-test.sh`
 <blockquote>
@@ -1620,7 +1620,7 @@ Wait for server/client pods
         ↓
 Discover current pods
         ↓
-Discover current net1 / 172.16.100.x addresses
+Discover current net1 / 172.16.101.x addresses
         ↓
 Validate:
   NVIDIA A40
@@ -1794,10 +1794,10 @@ Test environment:
   Namespace:       rdma-test
   Server node:     ocp113.localdomain
   Server pod:      doca-gpudirect-server-b8f5d47f-wxjb2
-  Server IP:       172.16.100.5
+  Server IP:       172.16.101.5
   Client node:     ocp115.localdomain
   Client pod:      doca-gpudirect-client-bd9c4994f-zt69n
-  Client IP:       172.16.100.4
+  Client IP:       172.16.101.4
   RDMA device:     mlx5_bond_1
   Memory baseline: host
   GPU test memory: cuda_dmabuf
@@ -1818,7 +1818,7 @@ Test environment:
 ==> host-memory-rocev2: starting server on doca-gpudirect-server-b8f5d47f-wxjb2
 Running doca_perftest server...
 
-==> host-memory-rocev2: starting client on doca-gpudirect-client-bd9c4994f-zt69n -> 172.16.100.5
+==> host-memory-rocev2: starting client on doca-gpudirect-client-bd9c4994f-zt69n -> 172.16.101.5
 Preparing RDMA resources | (0s)
 Running traffic [======================================> ] 97% (33/34s, ~1s remaining)
 BW:                                     165.06 [Gbit/sec]
@@ -1847,7 +1847,7 @@ Test start: 2026-09-11T22:54:51-04:00
 ==> cuda-dmabuf-gpudirect-rocev2: starting server on doca-gpudirect-server-b8f5d47f-wxjb2
 Running doca_perftest server...
 
-==> cuda-dmabuf-gpudirect-rocev2: starting client on doca-gpudirect-client-bd9c4994f-zt69n -> 172.16.100.5
+==> cuda-dmabuf-gpudirect-rocev2: starting client on doca-gpudirect-client-bd9c4994f-zt69n -> 172.16.101.5
 Preparing RDMA resources | (0s)
 Running traffic [========================================] 100% (34 seconds)
 Finalizing | (0s)
@@ -1873,8 +1873,8 @@ PASS: No matching AMD-Vi IO_PAGE_FAULT, GPU Xid, or PCIe AER errors detected
 ============================================================
 RoCEv2 & GPUDirect / RoCEv2 test summary
 ============================================================
-Server:        doca-gpudirect-server-b8f5d47f-wxjb2 (ocp113.localdomain) 172.16.100.5
-Client:        doca-gpudirect-client-bd9c4994f-zt69n (ocp115.localdomain) 172.16.100.4
+Server:        doca-gpudirect-server-b8f5d47f-wxjb2 (ocp113.localdomain) 172.16.101.5
+Client:        doca-gpudirect-client-bd9c4994f-zt69n (ocp115.localdomain) 172.16.101.4
 RDMA device:   mlx5_bond_1
 GID selection: automatic via DOCA/RDMA-CM
 QPs/streams:   8 per process
