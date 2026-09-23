@@ -16,6 +16,14 @@ The chart has an OpenShift-specific setting that grants its node service account
 [Source: `Sources/democratic-csi-helm-repo.yaml`](Sources/democratic-csi-helm-repo.yaml)
 <!-- embed-code: ./Sources/democratic-csi-helm-repo.yaml -->
 ```yaml
+apiVersion: helm.openshift.io/v1beta1
+kind: ProjectHelmChartRepository
+metadata:
+  name: democratic-csi-helm-repo
+  namespace: democratic-csi
+spec:
+  connectionConfig:
+    url: 'https://democratic-csi.github.io/charts/'
 ```
   
 #### Get the Helm Chart
@@ -25,6 +33,54 @@ The chart has an OpenShift-specific setting that grants its node service account
 [Source: `Sources/democratic-csi-mikrotik.yaml`](Sources/democratic-csi-mikrotik.yaml)
 <!-- embed-code: ./Sources/democratic-csi-mikrotik.yaml -->
 ```yaml
+csiDriver:
+  name: org.democratic-csi.node-manual
+  enabled: true
+  attachRequired: true
+
+controller:
+  enabled: true
+
+  externalAttacher:
+    enabled: true
+
+  externalProvisioner:
+    enabled: false
+
+  externalResizer:
+    enabled: false
+
+  externalSnapshotter:
+    enabled: false
+
+driver:
+  config:
+    driver: node-manual
+
+node:
+  enabled: true
+
+  # Required so NVMe/TCP uses the RHCOS host routing table.
+  # Therefore traffic to 172.16.100.125 follows bond1.100.
+  hostNetwork: true
+
+  rbac:
+    enabled: true
+    openshift:
+      privileged: true
+
+  driver:
+    # Upstream specifically notes null for OpenShift-like OSes.
+    localtimeHostPath: null
+
+    # We are not currently restricting the RDS target by host NQN,
+    # therefore the host /etc/nvme directory does not need mounting.
+    nvmeDirMountEnabled: false
+
+    logLevel: info
+
+storageClasses: []
+volumeSnapshotClasses: []
 ```
 
 #### Create Helm Release (With OpenShift-specific values):
@@ -192,6 +248,55 @@ Then create the PV/PVC:
 [Source: `Sources/mikrotik-vm-storage-001.yaml`](Sources/mikrotik-vm-storage-001.yaml)
 <!-- embed-code: ./Sources/mikrotik-vm-storage-001.yaml -->
 ```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mikrotik-vm-storage-001
+spec:
+  capacity:
+    storage: 1Ti
+
+  accessModes:
+    - ReadWriteOnce
+
+  persistentVolumeReclaimPolicy: Retain
+
+  storageClassName: ""
+
+  volumeMode: Block
+
+  csi:
+    driver: org.democratic-csi.node-manual
+    readOnly: false
+
+    volumeHandle: mikrotik-rds2216-vm-storage-001
+
+    volumeAttributes:
+      transport: "tcp://172.16.100.125:4420"
+      nqn: "nqn.2026-09.com.mikrotik:rds2216.vm-storage-001"
+      nsid: "1"
+      node_attach_driver: "nvmeof"
+      provisioner_driver: "node-manual"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mikrotik-vm-storage-001
+  namespace: nvme-test
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  volumeMode: Block
+
+  storageClassName: ""
+
+  volumeName: mikrotik-vm-storage-001
+
+  resources:
+    requests:
+      storage: 1Ti
 ```
 Then check binding:
 ```bash
@@ -247,6 +352,47 @@ democratic-csi-node   3         3         3       3            3           kuber
 [Source: `Sources/nvme-block-test.yaml`](Sources/nvme-block-test.yaml)
 <!-- embed-code: ./Sources/nvme-block-test.yaml -->
 ```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nvme-block-test
+  namespace: nvme-test
+spec:
+  serviceAccountName: nvme-block-test
+  containers:
+    - name: test
+      image: registry.access.redhat.com/ubi9/ubi:latest
+
+      securityContext:
+        privileged: true
+
+      command:
+        - /bin/bash
+        - -c
+        - |
+          echo "=== MikroTik NVMe raw block device ==="
+          ls -l /dev/mikrotik-nvme
+
+          echo
+          echo "=== Device size ==="
+          blockdev --getsize64 /dev/mikrotik-nvme
+
+          echo
+          echo "=== First 4 KiB read test ==="
+          dd if=/dev/mikrotik-nvme of=/dev/null bs=4096 count=1 status=progress
+
+          echo
+          echo "NVMe block device successfully attached."
+          sleep infinity
+
+      volumeDevices:
+        - name: mikrotik-storage
+          devicePath: /dev/mikrotik-nvme
+
+  volumes:
+    - name: mikrotik-storage
+      persistentVolumeClaim:
+        claimName: mikrotik-vm-storage-001
 ```
 Watch it closely:
 ```bash
@@ -323,16 +469,67 @@ The actual nvmeXnY numbering may vary by node, which is fine. CSI tracks the NQN
 [Source: `Sources/mikrotik-nvme-storageclass.yaml`](Sources/mikrotik-nvme-storageclass.yaml)
 <!-- embed-code: ./Sources/mikrotik-nvme-storageclass.yaml -->
 ```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: mikrotik-nvme
+provisioner: org.democratic-csi.node-manual
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: false
 ```
 #### Create a PV:
 [Source: `Sources/mikrotik-vm-storage-001-pv.yaml`](Sources/mikrotik-vm-storage-001-pv.yaml)
 <!-- embed-code: ./Sources/mikrotik-vm-storage-001-pv.yaml -->
 ```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mikrotik-vm-storage-001
+spec:
+  capacity:
+    storage: 1Ti
+
+  accessModes:
+    - ReadWriteOnce
+
+  persistentVolumeReclaimPolicy: Retain
+
+  storageClassName: mikrotik-nvme
+
+  volumeMode: Block
+
+  csi:
+    driver: org.democratic-csi.node-manual
+    readOnly: false
+    volumeHandle: mikrotik-rds2216-vm-storage-001
+
+    volumeAttributes:
+      transport: "tcp://172.16.100.125:4420"
+      nqn: "nqn.2026-09.com.mikrotik:rds2216.vm-storage-001"
+      nsid: "1"
+      node_attach_driver: "nvmeof"
+      provisioner_driver: "node-manual"
 ```
 #### Create a PVC:
 [Source: `Sources/mikrotik-vm-storage-001-pvc.yaml`](Sources/mikrotik-vm-storage-001-pvc.yaml)
 <!-- embed-code: ./Sources/mikrotik-vm-storage-001-pvc.yaml -->
 ```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mikrotik-vm-storage-001
+  namespace: nvme-test
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  volumeMode: Block
+  storageClassName: mikrotik-nvme
+
+  resources:
+    requests:
+      storage: 1Ti
 ```
 $${\color{yellow}\textbf{\textsf{CRITICAL:}}}$$ One important limitation:  
 - This StorageClass will not automatically create a new file-backed target on the RDS. `node-manual` is specifically for connecting to volumes you created manually. 
