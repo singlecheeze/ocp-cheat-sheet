@@ -1,5 +1,5 @@
 ### System Reserved Resource Sizing:
-Warnings like the below and easily be resolved by allowing OpenShift to size the right amount of system resources for the size of cluster it is:
+Warnings like the below can easily be resolved by allowing OpenShift to size the right amount of system resources for the size of cluster it is:
 ```text
 System Memory Exceeds Reservation
 Severity: Warning
