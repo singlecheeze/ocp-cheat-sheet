@@ -10,6 +10,106 @@ spec:
     rdma:
       enabled: true
 ```
+For A40/Ampere with driver 580, using the Open GPU Kernel Module is appropriate. NVIDIA supports the open modules on Turing and newer GPUs and recommends them on current driver branches; GPU Operator's `kernelModuleType=open` explicitly forces that flavor. NVIDIA Docs NVIDIA also notes that for GPUDirect workloads, `kernelModuleType=open` is the way to ensure the open driver is being used rather than relying on `auto`.  
+  
+In the example below, one node did not get the open driver when the `ClusterPolicy` was set to auto, for some reason. So make sure it is set to `open`.
+```bash
+[dave@rhel9dummy2 ~]$ for NODE in \
+  ocp113.localdomain \
+  ocp114.localdomain \
+  ocp115.localdomain; do
+
+  echo
+  echo "========================================================"
+  echo "${NODE}"
+  echo "========================================================"
+
+  oc debug node/"${NODE}" --quiet -- \
+    chroot /host bash -c '
+      echo "=== NVIDIA kernel module ==="
+      cat /proc/driver/nvidia/version 2>/dev/null || true
+
+      echo
+      echo "=== module license ==="
+      modinfo -F license nvidia 2>/dev/null || true
+
+      echo
+      echo "=== module version ==="
+      cat /sys/module/nvidia/version 2>/dev/null || true
+
+      echo
+      echo "=== loaded NVIDIA modules ==="
+      lsmod | grep "^nvidia" || true
+    '
+done
+
+========================================================
+ocp113.localdomain
+========================================================
+=== NVIDIA kernel module ===
+NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  580.126.20  Release Build  (dvs-builder@U22-I3-AF03-29-4)  Wed Feb 18 05:37:09 UTC 2026
+GCC version:  gcc version 11.5.0 20240719 (Red Hat 11.5.0-14) (GCC)
+
+=== module license ===
+
+=== module version ===
+580.126.20
+
+=== loaded NVIDIA modules ===
+nvidia_modeset       1826816  1
+nvidia_uvm           4042752  12
+nvidia              14434304  38 nvidia_uvm,nvidia_modeset
+
+========================================================
+ocp114.localdomain
+========================================================
+=== NVIDIA kernel module ===
+NVRM version: NVIDIA UNIX x86_64 Kernel Module  580.126.20  Wed Feb 18 05:56:34 UTC 2026
+GCC version:  gcc version 11.5.0 20240719 (Red Hat 11.5.0-14) (GCC)
+
+=== module license ===
+
+=== module version ===
+580.126.20
+
+=== loaded NVIDIA modules ===
+nvidia_modeset       1646592  0
+nvidia_uvm           3895296  6
+nvidia              104194048  38 nvidia_uvm,nvidia_modeset
+
+========================================================
+ocp115.localdomain
+========================================================
+=== NVIDIA kernel module ===
+NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  580.126.20  Release Build  (dvs-builder@U22-I3-AF03-29-4)  Wed Feb 18 05:37:09 UTC 2026
+GCC version:  gcc version 11.5.0 20240719 (Red Hat 11.5.0-14) (GCC)
+
+=== module license ===
+
+=== module version ===
+580.126.20
+
+=== loaded NVIDIA modules ===
+nvidia_modeset       1826816  0
+nvidia_uvm           4042752  12
+nvidia              14434304  38 nvidia_uvm,nvidia_modeset
+
+
+[dave@rhel9dummy2 ~]$ oc get clusterpolicy -o json | jq '
+  .items[] |
+  {
+    name: .metadata.name,
+    kernelModuleType: .spec.driver.kernelModuleType,
+    useOpenKernelModules: .spec.driver.useOpenKernelModules,
+    rdma: .spec.driver.rdma
+  }'
+{
+  "name": "gpu-cluster-policy",
+  "kernelModuleType": "auto",
+  "useOpenKernelModules": null,
+  "rdma": null
+}
+```
 ClusterPolicy (This is the default YAML that the operator creates for the operand):
 ```yaml
 kind: ClusterPolicy
@@ -29,7 +129,7 @@ spec:
   driver:
     enabled: true
     useNvidiaDriverCRD: false
-    kernelModuleType: auto
+    kernelModuleType: open
     upgradePolicy:
       autoUpgrade: true
       drain:
