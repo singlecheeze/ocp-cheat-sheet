@@ -119,12 +119,13 @@ OpenShift AI 3.5 documents two workflows:
 | **Register and store** | Runs a background Kubernetes Job to copy/transform the model into an OCI ModelCar image and register its metadata | Can establish a local artifact source; subsequent image reuse can reduce startup transfers |
 
 Note: "Register and store" still requires a container registry as a destination for the model image:
+  
 Use these destination values:
 
 | Field | Value |
 | --- | --- |
 | **Registry** | `image-registry.openshift-image-registry.svc:5000` |
-| **URI** | `image-registry.openshift-image-registry.svc:5000/ai-models/<<MODEL_NAME>>:v1` |
+| **URI** | `image-registry.openshift-image-registry.svc:5000/<<NAMESPACE>>/<<MODEL_NAME>>:v1` |
 | **Username** | Your `oc whoami` username |
 | **Password** | Your `oc whoami -t` token |
 
