@@ -118,6 +118,16 @@ OpenShift AI 3.5 documents two workflows:
 | **Register** | Records metadata pointing to an artifact stored elsewhere | No direct caching benefit |
 | **Register and store** | Runs a background Kubernetes Job to copy/transform the model into an OCI ModelCar image and register its metadata | Can establish a local artifact source; subsequent image reuse can reduce startup transfers |
 
+Note: "Register and store" still requires a container registry as a destination for the model image:
+Use these destination values:
+
+| Field | Value |
+| --- | --- |
+| **Registry** | `image-registry.openshift-image-registry.svc:5000` |
+| **URI** | `image-registry.openshift-image-registry.svc:5000/ai-models/<<MODEL_NAME>>:v1` |
+| **Username** | Your `oc whoami` username |
+| **Password** | Your `oc whoami -t` token |
+
 **Recommendation:** Use the registry to govern approved versions and track their locations. Use internal artifact storage and node caching to improve startup.
 
 > **Dashboard limitation:** The 3.5 guide states that deployment of URI-registered models through that workflow currently supports public OCI repositories only. Verify the authenticated deployment path before assuming the dashboard can deploy directly from a private Quay repository. This is a workflow limitation, not a statement that private OCI serving is universally unavailable.
