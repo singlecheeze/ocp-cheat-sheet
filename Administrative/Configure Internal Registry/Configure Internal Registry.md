@@ -28,16 +28,13 @@ Edit default route to disable TLS and map port 5000 (Allow insecure):
    <img alt="image" src="Images/634954502-145dbb1f-8afa-4c61-9e0a-5541c427134f.png" />
   
 ```bash
-oc get image.config.openshift.io cluster \
-  -o jsonpath='{.status.internalRegistryHostname}{"\n"}'
-
-oc get configs.imageregistry.operator.openshift.io cluster -o yaml
-
-oc get pods,svc -n openshift-image-registry
-
-oc get co image-registry
-
+oc get image.config.openshift.io cluster -o jsonpath='{.status.internalRegistryHostname}{"\n"}'
 image-registry.openshift-image-registry.svc:5000
+```
+```bash
+oc get configs.imageregistry.operator.openshift.io cluster -o yaml
+```
+```yaml
 apiVersion: imageregistry.operator.openshift.io/v1
 kind: Config
 metadata:
@@ -151,6 +148,10 @@ status:
     pvc:
       claim: odf-image-registry-pvc
   storageManaged: false
+```
+```bash
+oc get pods,svc -n openshift-image-registry
+
 NAME                                                  READY   STATUS      RESTARTS   AGE
 pod/cluster-image-registry-operator-85ccbcb46-77976   1/1     Running     3          4d
 pod/image-pruner-29858400-d85zf                       0/1     Completed   0          4d1h
@@ -164,12 +165,17 @@ pod/node-ca-s5wf6                                     1/1     Running     4     
 NAME                              TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)     AGE
 service/image-registry            ClusterIP   172.30.6.108   <none>        5000/TCP    34d
 service/image-registry-operator   ClusterIP   None           <none>        60000/TCP   37d
+```
+```bash
+oc get co image-registry
+
 NAME             VERSION   AVAILABLE   PROGRESSING   DEGRADED   SINCE   MESSAGE
 image-registry   4.22.16   True        False         False      12h
-[dave@rhel9dummy2 ~]$ oc whoami -t
-sha256~dznLnDdoTZRylAeoy3gVeKSbRKa2avy7j2siQ66PFwc
-[dave@rhel9dummy2 ~]$ oc exec -n openshift-image-registry deployment/image-registry \
-  -- df -h /registry
-Filesystem                                                                                                                                                                                                                               Size  Used Avail Use% Mounted on
+```
+```bash
+ oc exec -n openshift-image-registry deployment/image-registry -- df -h /registry
+ 
+ Filesystem                                                                                                                                                                                                                               Size  Used Avail Use% Mounted on
 csi-cephfs-node-ceph-user-g1-b09e25da-d8ea-4ab1-8f2a-f384ad346294@576f91c2-f2f2-402c-b8dd-94ca125c0fb1.ocs-storagecluster-cephfilesystem=/volumes/csi/csi-vol-dc23724f-4c52-4cc4-b6a3-2c51df1e38bd/b7fa0236-7ad0-4ea4-a1e0-c01734205c39  100G  168M  100G   1% /registry
+
 ```
