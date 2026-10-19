@@ -6,7 +6,7 @@ This document records the configuration that worked in this environment: one Qwe
 
 The manifests below are a clean reconstruction from the uploaded configuration and the successful changes in this conversation. Generated status, UIDs, resource versions, and credentials are excluded. They have not been reapplied to the live cluster as part of writing this document.
 
-> **Scope:** This starts with a functioning OpenShift AI cluster and the GPU, network, storage, Gateway API, and llm-d operators already installed. Section 13 now includes the captured GPU/Network Operator policies, host networking, storage settings, and AI configuration. Section 10 includes the complete Playground configuration and database manifests. Switch configuration, SCC/RBAC assignments, model image contents, and database backups remain external prerequisites.
+> **Scope:** This starts with a functioning OpenShift AI cluster and the GPU, network, storage, Gateway API, and llm-d operators already installed. Section 13 now includes the captured GPU/Network Operator policies, host networking, storage settings, and AI configuration. Section 10 includes the complete Playground configuration and database manifests. Supplemental SCC/RBAC identities and image digests are recorded in section 13.8. The serving SCC and ClusterRole definitions and OGX volume layout are now included. Switch configuration, model image contents, and database backups remain external prerequisites.
 
 ## Contents
 
@@ -101,7 +101,7 @@ oc get llminferenceserviceconfigs -n redhat-ods-applications
 
 All three nodes reported `nvidia.com/gpu: 1` and shared RDMA capacity `1k` (1,000 allocation units, not 1,000 physical NICs). An RDMA allocation of `1` exposes shared device access; it is not a bandwidth reservation.
 
-The custom template includes `IPC_LOCK`, `SYS_RAWIO`, and `NET_RAW`. The cluster admission/SCC configuration must permit the template on a fresh installation. Preserve the working service-account/SCC assignments; do not solve admission failures by granting broad privileged access to the namespace.
+The custom template includes `IPC_LOCK`, `SYS_RAWIO`, and `NET_RAW`. The observed KServe-managed `openshift-ai-llminferenceservice-scc` permits these capabilities, while requiring `ALL` to be dropped before explicit additions. Its complete SCC, use-only ClusterRole, and model service-account binding are recorded in section 13.8.4. Let the matching KServe installation reconcile these resources; do not solve admission failures by granting broad privileged access to the namespace.
 
 ## 3. Namespace and RoCE network
 
@@ -229,7 +229,7 @@ The destination URI in this UI required the **full registry hostname**. A relati
 
 The persistent service account in the next section has **pull-only** permissions. It is not a replacement for upload/push credentials.
 
-For strict repeatability, record the source revision used in the import and the resulting OCI digest. `:v1` is a mutable tag. The model download in this conversation referenced revision `ea247061a1c961ddc12da…`; the complete revision and final OCI digest were not captured, so do not treat that abbreviated revision as a pin.
+For strict repeatability, record the source revision used in the import and the resulting OCI digest. `:v1` is a mutable tag. The model download in this conversation referenced revision `ea247061a1c961ddc12da…`; the complete source revision was not captured, so do not treat that abbreviated revision as a pin. The supplemental pod output now provides the final ModelCar OCI digest in section 13.8.5.
 
 ## 5. Persistent registry pull credentials
 
@@ -1217,7 +1217,7 @@ oc exec -n ai-test deployment/genai-pgvector -- \
   psql -U postgres -d vectordb -c "SELECT extname, extversion FROM pg_extension WHERE extname='vector';"
 ```
 
-The captured image is `registry.redhat.io/rhel9/postgresql-16` (a mutable tag). The startup script enables the `vector` extension; the query above must return a row. Preserve the actual image digest for strict repeatability, and verify that the destination image contains the extension.
+The captured image is `registry.redhat.io/rhel9/postgresql-16` (a mutable tag). The startup script enables the `vector` extension; the query above must return a row. The observed image digest is recorded in section 13.8.5 for repeatability; verify that the destination image contains the extension.
 
 Save the following as `09-llama-stack-config.yaml`. This is the full configuration, including model registration and storage providers:
 
@@ -1372,7 +1372,7 @@ oc apply -f 09-llama-stack-config.yaml
 # Apply the OGXServer YAML from section 10.1 after its dependencies exist.
 ```
 
-**Persistence boundary:** PostgreSQL has a 5Gi RBD PVC. OGX also references SQLite databases and uploaded files under `/opt/app-root/src/.llama/distributions/rh/`; the captured OGXServer does not explicitly attach a PVC at that path. Do not assume those files survive pod replacement. Inspect the generated Deployment and back up/restore those paths separately if retaining conversations or uploaded content matters. The `llm-models` PVC is separate and is not mounted by these database or OGXServer manifests.
+**Persistence boundary — confirmed from the generated Deployment:** PostgreSQL has a 5Gi RBD PVC. OGX mounts `ogx-storage` as an `emptyDir` at `/.ogx`, and mounts the configuration ConfigMap read-only at `/etc/ogx/`. There is **no PVC mount on the OGX container**. Its configured SQLite databases and uploaded files under `/opt/app-root/src/.llama/distributions/rh/` are outside both mounts, in the container filesystem; treat them as nonpersistent across container recreation. The `/.ogx` emptyDir can survive a container restart within the same Pod but is lost with Pod replacement. PostgreSQL persistence does not preserve these OGX stores. Back up the actual SQLite/file paths before a restart or recovery if their contents matter. A durable OGX configuration would require a separate storage change covering the actual configured paths; this runbook records the working layout without inventing an unverified operator override. The `llm-models` PVC is separate and is not mounted by these database or OGX manifests. See section 13.8.6 for the captured volume layout.
 
 ## 11. Validation and performance
 
@@ -1534,7 +1534,7 @@ Do not manually set `status.Ready`, `Programmed`, or other controller-owned stat
 
 ### 13.1 Refreshed capture and recreation boundaries
 
-Source: `three-a40-capture.tar(1).gz`, supplied October 19, 2026, containing 24 JSON exports. Every export parsed successfully. The model now has `serving.kserve.io/stop: "false"`, pipeline size 3, tensor size 1, and one replica group. The capture helper removed status, so this archive establishes desired configuration, not current readiness or performance.
+Source: `three-a40-capture.tar(1).gz`, supplied October 19, 2026, containing 24 JSON exports. Every export parsed successfully. The model now has `serving.kserve.io/stop: "false"`, pipeline size 3, tensor size 1, and one replica group. The capture helper removed status, so this archive establishes desired configuration. Supplemental status in section 13.8.5 now confirms readiness at the time of capture; it does not establish performance.
 
 The manifests in sections 6–8 and 10 were reconciled against this capture. Reconstruction removes controller-owned metadata, old owner references, fixed Service IPs, and PVC bindings. Model registry IDs (`local-model-registry`, registered model `3`, version `4`) and hardware-profile resource version are intentionally not copied into the portable model manifest. Resolve them on the destination cluster if restoring dashboard registry associations.
 
@@ -1925,7 +1925,7 @@ spec:
   volumeMode: Filesystem
 ```
 
-The captured CephFS class uses `openshift-storage.cephfs.csi.ceph.com`, filesystem `ocs-storagecluster-cephfilesystem`, cluster ID `openshift-storage`, immediate binding, expansion enabled, and reclaim policy `Delete`. PostgreSQL instead uses `ocs-storagecluster-ceph-rbd`, whose StorageClass export was not included. Both require functioning ODF provisioners and their generated credentials.
+The captured CephFS class uses `openshift-storage.cephfs.csi.ceph.com`, filesystem `ocs-storagecluster-cephfilesystem`, cluster ID `openshift-storage`, immediate binding, expansion enabled, and reclaim policy `Delete`. PostgreSQL instead uses `ocs-storagecluster-ceph-rbd`, whose StorageClass is now recorded in section 13.8.3. Both require functioning ODF provisioners and their generated credentials.
 
 ### 13.6 OpenShift AI and GatewayClass
 
@@ -1997,7 +1997,7 @@ spec:
   controllerName: openshift.io/gateway-controller/v1
 ```
 
-The Gen AI Studio dashboard feature setting is separate from this DataScienceCluster export. Preserve the existing dashboard configuration when recreating the UI.
+The Gen AI Studio dashboard feature setting is separate from this DataScienceCluster export. Its captured configuration and narrow enablement patch are now in section 13.8.2.
 
 ### 13.7 Operator and runtime inventory
 
@@ -2019,23 +2019,364 @@ Subscription specs show requested channels and optional startingCSV, not proof o
 
 Captured KServe configuration families: `v3-5-0-*` and `v3-5-1-*`. The custom runtime uses `v3-5-1-kserve-config-llm-worker-pipeline-parallel`. Keep the matching vendor templates, router, scheduler, tokenizer, and tracing resources supplied by that installation.
 
-### 13.8 Remaining external prerequisites and capture commands
+### 13.8 Supplemental live configuration and remaining capture commands
 
-The archive does not contain switch configuration, model image bytes/digest, database backups, SCC assignments, dashboard configuration, or the hardware profile. These are not silently invented here. Use these read-only commands to record the remaining Kubernetes settings; do not export Secrets.
+The supplemental terminal output supplied October 19 fills in the hardware profile, dashboard configuration, RBD StorageClass, pod SCC identities, namespace role bindings, runtime image IDs, and model readiness. A follow-up capture supplies the generated OGX volume layout and the serving SCC/ClusterRole definitions. The earlier extra trailing `]` in the jq filter is corrected; no further output is needed from those commands.
 
-```bash
-oc get hardwareprofiles.infrastructure.opendatahub.io nvidia-1-gpu -n redhat-ods-applications -o yaml
-oc get odhdashboardconfigs.opendatahub.io -n redhat-ods-applications -o yaml
-oc get storageclass ocs-storagecluster-ceph-rbd -o yaml
-oc get pods -n ai-test -o json | jq '[.items[] | {name: .metadata.name, serviceAccount: .spec.serviceAccountName, scc: .metadata.annotations["openshift.io/scc"], images: [.status.containerStatuses[]? | {name, image, imageID}]}]'
-oc get rolebindings -n ai-test -o yaml
-oc get llminferenceservice qwen36-35b-a3b-fp8-pp3 -n ai-test -o json | jq '{generation: .metadata.generation, status: .status}'
-oc get deployment lsd-genai-playground -n ai-test -o json | jq '{volumes: .spec.template.spec.volumes, containers: [.spec.template.spec.containers[] | {name, volumeMounts}]}]'
+#### 13.8.1 Hardware profile
+
+Save as `10-nvidia-hardware-profile.yaml` and apply after the HardwareProfile API is installed. This profile selects A40 nodes and defaults to 6 CPUs, 16Gi RAM, and one GPU. The actual model manifest explicitly requests **32Gi per serving pod**, overriding the profile's memory default. The profile does not include the RDMA allocation; retain that request in both model pod templates.
+
+```yaml
+apiVersion: infrastructure.opendatahub.io/v1
+kind: HardwareProfile
+metadata:
+  annotations:
+    opendatahub.io/dashboard-feature-visibility: '[]'
+    opendatahub.io/description: Single NVIDIA GPU for LLM inference
+    opendatahub.io/disabled: 'false'
+    opendatahub.io/display-name: NVIDIA 1 GPU
+  name: nvidia-1-gpu
+  namespace: redhat-ods-applications
+spec:
+  identifiers:
+  - defaultCount: '6'
+    displayName: CPU
+    identifier: cpu
+    maxCount: '8'
+    minCount: '2'
+    resourceType: CPU
+  - defaultCount: 16Gi
+    displayName: Memory
+    identifier: memory
+    maxCount: 32Gi
+    minCount: 8Gi
+    resourceType: Memory
+  - defaultCount: 1
+    displayName: NVIDIA GPU
+    identifier: nvidia.com/gpu
+    maxCount: 1
+    minCount: 1
+    resourceType: Accelerator
+  scheduling:
+    node:
+      nodeSelector:
+        nvidia.com/gpu.product: NVIDIA-A40
+      tolerations: []
+    type: Node
 ```
 
-Record the relevant SCC definition after identifying its name from the pod output, and verify bindings for the actual serving service account. Do not grant privileged namespace-wide access to bypass a missing prerequisite. Review full resource exports before sharing: annotations or inline configuration may carry credentials.
+#### 13.8.2 Dashboard settings
 
-Back up registry blobs, PostgreSQL data, OGX SQLite/files, and model-registry data separately. Reissue service-account token Secrets on a new cluster. Do not apply archived HTTPRoute, InferencePool, LeaderWorkerSet, or proxy Service objects over their controllers; recreate them from their parents.
+Gen AI Studio is confirmed enabled. The following is the cleaned captured resource, retained as a reference for the full dashboard setup. On an existing installation, use the narrow merge patch below to enable the feature without replacing other dashboard choices.
+
+```yaml
+apiVersion: opendatahub.io/v1alpha
+kind: OdhDashboardConfig
+metadata:
+  annotations:
+    platform.opendatahub.io/type: OpenShift AI Self-Managed
+  labels:
+    app: rhods-dashboard
+    app.kubernetes.io/part-of: rhods-dashboard
+    app.opendatahub.io/rhods-dashboard: 'true'
+    platform.opendatahub.io/part-of: dashboard
+  name: odh-dashboard-config
+  namespace: redhat-ods-applications
+spec:
+  dashboardConfig:
+    disableTracking: false
+    genAiStudio: true
+  globalMLflowNamespaces: []
+  hardwareProfileOrder: []
+  modelServing:
+    deploymentStrategy: rolling
+  notebookController:
+    enabled: true
+    notebookNamespace: rhods-notebooks
+    pvcSize: 20Gi
+  templateDisablement: []
+  templateOrder:
+  - vllm-cuda-runtime
+  - autogluon-runtime
+  - vllm-gaudi-runtime
+  - vllm-spyre-ppc64le-runtime
+  - kserve-ovms
+  - vllm-spyre-x86-runtime
+  - mlserver-runtime
+  - vllm-cpu-x86-runtime
+  - vllm-rocm-runtime
+  - mlserver-cuda-runtime
+  - vllm-cpu-runtime
+  - guardrails-detector-huggingface-runtime
+  - vllm-spyre-s390x-runtime
+```
+
+```bash
+oc patch odhdashboardconfigs.opendatahub.io odh-dashboard-config \
+  -n redhat-ods-applications --type=merge \
+  -p '{"spec":{"dashboardConfig":{"genAiStudio":true}}}'
+```
+
+#### 13.8.3 PostgreSQL StorageClass
+
+The PostgreSQL PVC's class is now captured. It uses the ODF RBD provisioner, the `ocs-storagecluster-cephblockpool` pool, ext4, immediate binding, expansion enabled, and Delete reclaim policy. It is the source cluster's default class. This is an **ODF-managed reference**, not a standalone storage installation manifest; preserve its controller and backing Ceph resources. Do not change a destination cluster's default class merely to match this export. The generated storage identity label is omitted below.
+
+```yaml
+allowVolumeExpansion: true
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    description: Provides RWO Filesystem volumes, and RWO and RWX Block volumes
+    reclaimspace.csiaddons.openshift.io/schedule: '@weekly'
+    storageclass.kubernetes.io/is-default-class: 'true'
+  labels: {}
+  name: ocs-storagecluster-ceph-rbd
+parameters:
+  clusterID: openshift-storage
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: openshift-storage
+  csi.storage.k8s.io/fstype: ext4
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-stage-secret-namespace: openshift-storage
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: openshift-storage
+  imageFeatures: layering,deep-flatten,exclusive-lock,object-map,fast-diff
+  imageFormat: '2'
+  pool: ocs-storagecluster-cephblockpool
+provisioner: openshift-storage.rbd.csi.ceph.com
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+```
+
+#### 13.8.4 Service accounts, SCCs, and ownership
+
+| Workload | Service account in ai-test | Observed SCC |
+|---|---|---|
+| Gateway proxies | `ai-test-inference-openshift-default` | `restricted-v2` |
+| PostgreSQL | `default` | `restricted-v2` |
+| OGX Playground | `lsd-genai-playground-sa` | `anyuid` |
+| All three model pods | `qwen36-35b-a3b-fp8-pp3-kserve-mn` | `openshift-ai-llminferenceservice-scc` |
+| Inference scheduler | `qwen36-35b-a3b-fp8-pp3-epp-sa` | `restricted-v2` |
+
+The following role bindings are **controller-generated references**. OGX owns its anyuid binding, and the LLMInferenceService owns the serving SCC binding. Let those controllers recreate the bindings and service accounts. These references document the exact scope; they do not authorize namespace-wide anyuid or privileged access. The model binding also includes the prefill service account, even though this deployment uses pipeline parallelism without a separate prefill workload.
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: ogx-operator
+    app.kubernetes.io/part-of: ogx
+    ogx.io/watch: 'true'
+  name: lsd-genai-playground-rb
+  namespace: ai-test
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+subjects:
+- kind: ServiceAccount
+  name: lsd-genai-playground-sa
+  namespace: ai-test
+```
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/name: qwen36-35b-a3b-fp8-pp3
+    app.kubernetes.io/part-of: llminferenceservice
+  name: qwen36-35b-a3b-fp8-pp3-kserve-mn-scc
+  namespace: ai-test
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: openshift-ai-llminferenceservice-scc
+subjects:
+- kind: ServiceAccount
+  name: qwen36-35b-a3b-fp8-pp3-kserve-mn
+- kind: ServiceAccount
+  name: qwen36-35b-a3b-fp8-pp3-kserve-mn-prefill
+```
+
+The dedicated `model-registry-puller` binding matches section 5. The scheduler's generated binding targets its same-named `qwen36-35b-a3b-fp8-pp3-epp-role`; namespace default deployer/builder/puller bindings remain platform-managed. The source namespace also grants user `dave` the `admin` ClusterRole; that personal access grant is not needed in the recreation manifests.
+
+The SCC and ClusterRole below are **KServe-managed references**, owned in the source cluster by the `Kserve/default-kserve` component. Generated annotations, owner UIDs, timestamps, and resource versions are removed. They complete the admission prerequisites; do not install competing copies over the operator's resources.
+
+The SCC forbids privileged containers, host networking/IPC/PID/ports, host-directory volumes, and privilege escalation. It allows the four listed capability additions, requires dropping `ALL`, uses `MustRunAsRange` for the user and `MustRunAs` for SELinux, and permits `runtime/default` seccomp. The runtime template uses a subset of those allowed capabilities. Empty `users` and `groups` arrays do not prevent access through RBAC: the ClusterRole grants only `use` on this named SCC, and the model's namespace RoleBinding grants that role to its service accounts.
+
+```yaml
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: false
+allowPrivilegedContainer: false
+allowedCapabilities:
+- IPC_LOCK
+- SYS_RAWIO
+- NET_BIND_SERVICE
+- NET_RAW
+apiVersion: security.openshift.io/v1
+defaultAddCapabilities: null
+fsGroup:
+  type: RunAsAny
+groups: []
+kind: SecurityContextConstraints
+metadata:
+  labels:
+    platform.opendatahub.io/part-of: kserve
+  name: openshift-ai-llminferenceservice-scc
+priority: null
+readOnlyRootFilesystem: false
+requiredDropCapabilities:
+- ALL
+runAsUser:
+  type: MustRunAsRange
+seLinuxContext:
+  type: MustRunAs
+seccompProfiles:
+- runtime/default
+supplementalGroups:
+  type: RunAsAny
+userNamespaceLevel: AllowHostLevel
+users: []
+volumes:
+- awsElasticBlockStore
+- azureDisk
+- azureFile
+- cephFS
+- cinder
+- configMap
+- csi
+- downwardAPI
+- emptyDir
+- ephemeral
+- fc
+- flexVolume
+- flocker
+- gcePersistentDisk
+- gitRepo
+- glusterfs
+- image
+- iscsi
+- nfs
+- persistentVolumeClaim
+- photonPersistentDisk
+- portworxVolume
+- projected
+- quobyte
+- rbd
+- scaleIO
+- secret
+- storageOS
+- vsphere
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    platform.opendatahub.io/part-of: kserve
+  name: openshift-ai-llminferenceservice-scc
+rules:
+- apiGroups:
+  - security.openshift.io
+  resourceNames:
+  - openshift-ai-llminferenceservice-scc
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+```
+
+#### 13.8.5 Readiness and image identity
+
+The supplied status confirms generation **4** equals observedGeneration **4**, and all nine reported conditions are True, including Ready, GatewaysReady, RouterReady, and WorkerWorkloadReady. Ready last transitioned at **2026-10-19 16:49:38 UTC (12:49:38 p.m. Eastern)**. The primary LeaderWorkerSet and scheduler each report one ready replica; for the LeaderWorkerSet this is the distributed group, not a claim that only one GPU pod exists.
+
+The controller reports these applied presets:
+
+- `v3-5-1-kserve-config-llm-scheduler`
+- `v3-5-1-kserve-config-llm-router-route`
+- `v3-5-1-kserve-config-llm-worker-pipeline-parallel`
+
+Recorded runtime image IDs below are observations, not instructions to patch operator-generated workloads. Keep the requested runtime digest in section 6; a requested image digest and a runtime-resolved image ID can differ. Preserve both when recording the installation.
+
+| Component | Requested image | Observed image ID |
+|---|---|---|
+| `istio-proxy` | `registry.redhat.io/openshift-service-mesh/istio-proxyv2-rhel9@sha256:bc34f81266d8b0d2f5a8e71e966098d4edef70ac8dbb077a014a27fe1b71ec0a` | `registry.redhat.io/openshift-service-mesh/istio-proxyv2-rhel9@sha256:35cf13b6642007619d7011b2443d69763abb3248b253f05a1ba0a6e5a4b926d5` |
+| `postgresql` | `registry.redhat.io/rhel9/postgresql-16:latest` | `registry.redhat.io/rhel9/postgresql-16@sha256:61fd561b741e9c72f552c38750dfd91c0367c28721cad498445e43d33662a423` |
+| `ogx` | `registry.redhat.io/rhoai/odh-ogx-core-rhel9@sha256:7eeac2aa61faf264084df755c9c1575526371b46ec63acc1985598b644882cfb` | `registry.redhat.io/rhoai/odh-ogx-core-rhel9@sha256:7eeac2aa61faf264084df755c9c1575526371b46ec63acc1985598b644882cfb` |
+| `main` | `registry.redhat.io/rhaii/vllm-cuda-rhel9@sha256:c056e61672b6aea489ad5dde0bd2f8497230f5333e87f7cf6c494eba3bfdc808` | `registry.redhat.io/rhaii/vllm-cuda-rhel9@sha256:82b6b3afd769ef6fbbef6a914ca49fc077835c2b94bf43c7d5f353e1c09234ff` |
+| `modelcar` | `image-registry.openshift-image-registry.svc:5000/ai-test/qwen36-35b-a3b-fp8:v1` | `image-registry.openshift-image-registry.svc:5000/ai-test/qwen36-35b-a3b-fp8@sha256:7539fcc516e2aa1233249dfa63138e8b24e040b4a4db578a5b87e8299a085a49` |
+| `main` | `registry.redhat.io/rhoai/odh-llm-d-router-endpoint-picker-rhel9@sha256:14e57b536479e7d8b7d495000d8402ca780997994096277d131b56e6a9bcf27f` | `registry.redhat.io/rhoai/odh-llm-d-router-endpoint-picker-rhel9@sha256:14e57b536479e7d8b7d495000d8402ca780997994096277d131b56e6a9bcf27f` |
+
+For reproducible ModelCar selection, the observed immutable URI is:
+
+```text
+oci://image-registry.openshift-image-registry.svc:5000/ai-test/qwen36-35b-a3b-fp8@sha256:7539fcc516e2aa1233249dfa63138e8b24e040b4a4db578a5b87e8299a085a49
+```
+
+The working manifest retains its captured `:v1` URI. For a pinned rebuild, substitute the URI above only after importing/preserving that digest at the destination registry. A digest does not contain the image bytes or supply the original Hugging Face commit. PostgreSQL's observed digest is also recorded above; use it in a fresh same-platform rebuild if that image is available, rather than relying on `latest` to remain unchanged.
+
+#### 13.8.6 Confirmed OGX storage and reusable inspection commands
+
+The corrected inspection succeeded. The generated Deployment has exactly these application volumes and mounts:
+
+```yaml
+volumes:
+- emptyDir: {}
+  name: ogx-storage
+- configMap:
+    defaultMode: 420
+    items:
+    - key: config.yaml
+      path: config.yaml
+    name: llama-stack-config
+  name: user-config
+containers:
+- name: ogx
+  volumeMounts:
+  - mountPath: /.ogx
+    name: ogx-storage
+  - mountPath: /etc/ogx/
+    name: user-config
+    readOnly: true
+```
+
+This is a **generated Deployment excerpt for inspection**, not a standalone manifest to apply. The config volume mode `420` is decimal for `0644`.
+
+| Data location | Backing storage in captured deployment | Recovery implication |
+|---|---|---|
+| PostgreSQL `/var/lib/pgsql/data` | Separate database Pod's `genai-pgvector-storage` PVC | Data survives Pod replacement while the PVC/backing volume is retained; maintain a database backup |
+| OGX `/.ogx` | `emptyDir` | Ephemeral Pod storage; lost when the Pod is replaced |
+| OGX `/etc/ogx/config.yaml` | `llama-stack-config` ConfigMap, read-only | Recreated from the ConfigMap in section 10.3 |
+| OGX `/opt/app-root/src/.llama/distributions/rh/` | No volume mounted at this configured SQLite/file-storage path | Treat conversations, metadata, SQLite stores, and uploaded files stored there as nonpersistent across container recreation |
+
+All requested follow-up Kubernetes outputs have now been incorporated. These corrected read-only commands are retained for future audits; **you do not need to rerun them for this update**:
+
+```bash
+oc get deployment lsd-genai-playground -n ai-test -o json |
+jq '{
+  volumes: .spec.template.spec.volumes,
+  containers: [
+    .spec.template.spec.containers[] |
+    {name, volumeMounts}
+  ]
+}'
+
+oc get securitycontextconstraints.security.openshift.io \
+  openshift-ai-llminferenceservice-scc -o yaml
+
+oc get clusterrole openshift-ai-llminferenceservice-scc -o yaml
+```
+
+The jq filter now ends with `]}` rather than `]}]`. Its former compile error was a command parsing error, not a model compilation or serving failure.
+
+Remaining external recovery inputs are switch configuration, registry/model image bytes, PostgreSQL backups, OGX SQLite/file backups if retaining history, and model-registry data. Reissue service-account tokens on a new cluster. Controller-generated HTTPRoutes, InferencePools, LeaderWorkerSets, role bindings, gateway proxy resources, and KServe security resources should be regenerated by their owning controllers.
 
 ## 14. Python CLI
 
