@@ -1,12 +1,12 @@
 # Three A40 GPUs Serving One Qwen Model on OpenShift AI 3.5
 
-**Recreation runbook • consolidated October 16, 2026**
+**Recreation runbook • updated October 19, 2026 from the refreshed live capture**
 
 This document records the configuration that worked in this environment: one Qwen model split across three servers, with one NVIDIA A40 per server, llm-d routing, RoCE communication, an external HTTPS Route, and the OpenShift AI Gen AI Playground.
 
 The manifests below are a clean reconstruction from the uploaded configuration and the successful changes in this conversation. Generated status, UIDs, resource versions, and credentials are excluded. They have not been reapplied to the live cluster as part of writing this document.
 
-> **Scope:** This starts with a functioning OpenShift AI cluster and the GPU, network, storage, Gateway API, and llm-d operators already installed. The complete original GPU/Network Operator policies, host network policies, switch configuration, SCC assignments, and Playground database configuration were not supplied. Export them from the working cluster using the capture section before rebuilding an entire cluster.
+> **Scope:** This starts with a functioning OpenShift AI cluster and the GPU, network, storage, Gateway API, and llm-d operators already installed. Section 13 now includes the captured GPU/Network Operator policies, host networking, storage settings, and AI configuration. Section 10 includes the complete Playground configuration and database manifests. Switch configuration, SCC/RBAC assignments, model image contents, and database backups remain external prerequisites.
 
 ## Contents
 
@@ -338,12 +338,12 @@ The versioned router, scheduler, TLS, model-loading, and controller dependencies
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
-  name: v3-5-1-kserve-config-llm-worker-pipeline-parallel
-  namespace: redhat-ods-applications
   annotations:
     serving.kserve.io/well-known-config: 'true'
   labels:
     platform.opendatahub.io/part-of: kserve
+  name: v3-5-1-kserve-config-llm-worker-pipeline-parallel
+  namespace: redhat-ods-applications
 spec:
   annotations:
     serving.kserve.io/model-based-routing-enabled: 'true'
@@ -594,7 +594,6 @@ spec:
     - name: tls-certs
       secret:
         secretName: '{{ ChildName .ObjectMeta.Name `-kserve-self-signed-certs` }}'
-
 ```
 
 ```bash
@@ -630,21 +629,21 @@ Save as `05-ai-test-gateway.yaml`:
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: ai-test-inference
-  namespace: ai-test
   annotations:
     networking.istio.io/service-type: ClusterIP
   labels:
     istio.io/rev: openshift-gateway
+  name: ai-test-inference
+  namespace: ai-test
 spec:
   gatewayClassName: openshift-default
   listeners:
-    - name: http
-      port: 80
-      protocol: HTTP
-      allowedRoutes:
-        namespaces:
-          from: Same
+  - allowedRoutes:
+      namespaces:
+        from: Same
+    name: http
+    port: 80
+    protocol: HTTP
 ```
 
 ```bash
@@ -667,25 +666,27 @@ Save as `06-qwen-three-a40.yaml`:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceService
 metadata:
-  name: qwen36-35b-a3b-fp8-pp3
-  namespace: ai-test
+  annotations:
+    opendatahub.io/connections: qwen36-35b-a3b-fp8
+    opendatahub.io/model-type: generative
+    openshift.io/display-name: Qwen3.6-35B-A3B-FP8 - Three A40s
+    security.opendatahub.io/enable-auth: 'false'
+    serving.kserve.io/stop: 'false'
   labels:
     opendatahub.io/dashboard: 'true'
     opendatahub.io/genai-asset: 'true'
-  annotations:
-    openshift.io/display-name: Qwen3.6-35B-A3B-FP8 - Three A40s
-    opendatahub.io/model-type: generative
-    security.opendatahub.io/enable-auth: 'false'
+  name: qwen36-35b-a3b-fp8-pp3
+  namespace: ai-test
 spec:
+  annotations:
+    k8s.v1.cni.cncf.io/networks: '[{"name":"rdma-bond","namespace":"ai-test"}]'
   model:
     name: qwen36-35b-a3b-fp8-pp3
     uri: oci://image-registry.openshift-image-registry.svc:5000/ai-test/qwen36-35b-a3b-fp8:v1
-  replicas: 1
   parallelism:
-    tensor: 1
     pipeline: 3
-  annotations:
-    k8s.v1.cni.cncf.io/networks: '[{"name":"rdma-bond","namespace":"ai-test"}]'
+    tensor: 1
+  replicas: 1
   router:
     gateway:
       refs:
@@ -694,58 +695,57 @@ spec:
     route: {}
     scheduler: {}
   template:
-    nodeSelector:
-      nvidia.com/gpu.product: NVIDIA-A40
-    imagePullSecrets:
-    - name: qwen36-35b-a3b-fp8
     containers:
-    - name: main
-      env:
+    - env:
       - name: VLLM_ADDITIONAL_ARGS
-        value: --max-model-len=32768 --max-num-seqs=4 --gpu-memory-utilization=0.90 --reasoning-parser=qwen3
-          --enable-auto-tool-choice --tool-call-parser=qwen3_coder --language-model-only
+        value: --max-model-len=32768 --max-num-seqs=4 --gpu-memory-utilization=0.90 --reasoning-parser=qwen3 --enable-auto-tool-choice
+          --tool-call-parser=qwen3_coder --language-model-only
       - name: NCCL_DEBUG
         value: INFO
       - name: NCCL_IB_DISABLE
         value: '0'
+      name: main
       resources:
-        requests:
-          cpu: '6'
-          memory: 32Gi
-          nvidia.com/gpu: '1'
-          rdma/rdma_shared_device_dx_bond: '1'
         limits:
           cpu: '6'
           memory: 32Gi
           nvidia.com/gpu: '1'
           rdma/rdma_shared_device_dx_bond: '1'
+        requests:
+          cpu: '6'
+          memory: 32Gi
+          nvidia.com/gpu: '1'
+          rdma/rdma_shared_device_dx_bond: '1'
+    imagePullSecrets:
+    - name: qwen36-35b-a3b-fp8
+    nodeSelector:
+      nvidia.com/gpu.product: NVIDIA-A40
   worker:
-    nodeSelector:
-      nvidia.com/gpu.product: NVIDIA-A40
-    imagePullSecrets:
-    - name: qwen36-35b-a3b-fp8
     containers:
-    - name: main
-      env:
+    - env:
       - name: VLLM_ADDITIONAL_ARGS
-        value: --max-model-len=32768 --max-num-seqs=4 --gpu-memory-utilization=0.90 --reasoning-parser=qwen3
-          --enable-auto-tool-choice --tool-call-parser=qwen3_coder --language-model-only
+        value: --max-model-len=32768 --max-num-seqs=4 --gpu-memory-utilization=0.90 --reasoning-parser=qwen3 --enable-auto-tool-choice
+          --tool-call-parser=qwen3_coder --language-model-only
       - name: NCCL_DEBUG
         value: INFO
       - name: NCCL_IB_DISABLE
         value: '0'
+      name: main
       resources:
-        requests:
-          cpu: '6'
-          memory: 32Gi
-          nvidia.com/gpu: '1'
-          rdma/rdma_shared_device_dx_bond: '1'
         limits:
           cpu: '6'
           memory: 32Gi
           nvidia.com/gpu: '1'
           rdma/rdma_shared_device_dx_bond: '1'
-
+        requests:
+          cpu: '6'
+          memory: 32Gi
+          nvidia.com/gpu: '1'
+          rdma/rdma_shared_device_dx_bond: '1'
+    imagePullSecrets:
+    - name: qwen36-35b-a3b-fp8
+    nodeSelector:
+      nvidia.com/gpu.product: NVIDIA-A40
 ```
 
 ```bash
@@ -869,7 +869,7 @@ curl -skS "${MODEL_ENDPOINT}/v1/chat/completions" \
 
 ### 10.1 Provision the Playground components
 
-For a fresh namespace, use the OpenShift AI UI to enable/provision the Playground and its stores. The observed resources were:
+For a fresh namespace, either provision the Playground through the OpenShift AI UI or use the captured manifests below. Do not apply competing manual copies over UI-managed resources. The observed resources were:
 
 | Resource | Working name |
 |---|---|
@@ -886,18 +886,18 @@ For a fresh namespace, use the OpenShift AI UI to enable/provision the Playgroun
 
 The resource type in this installation is **`ogxservers.ogx.io`**, not the older `llamastackdistributions` name. `ConfigGenerated=False / ConfigGenerationInactive` was expected while using `overrideConfig`; it did not mean the running server was unhealthy.
 
-The observed OGXServer configuration is below. Apply it only after the UI or your backup restore supplies the complete `llama-stack-config`, pgvector, database credentials, and required persistence. This manifest alone does not create those dependencies.
+The observed OGXServer configuration is below. Apply it after creating the dependencies in section 10.3. This manifest alone does not create those dependencies.
 
 ```yaml
 apiVersion: ogx.io/v1beta1
 kind: OGXServer
 metadata:
-  name: lsd-genai-playground
-  namespace: ai-test
   annotations:
     openshift.io/display-name: lsd-genai-playground
   labels:
     opendatahub.io/dashboard: 'true'
+  name: lsd-genai-playground
+  namespace: ai-test
 spec:
   distribution:
     name: rh-dev
@@ -909,41 +909,41 @@ spec:
   workload:
     overrides:
       command:
-        - /bin/sh
-        - -c
-        - ogx run /etc/ogx/config.yaml --insecure
+      - /bin/sh
+      - -c
+      - ogx run /etc/ogx/config.yaml --insecure
       env:
-        - name: VLLM_TLS_VERIFY
-          value: 'false'
-        - name: FAISS_STORE_DIR
-          value: ~/.llama/faiss
-        - name: SENTENCE_TRANSFORMERS_HOME
-          value: /opt/app-root/.cache/huggingface/hub
-        - name: HF_HUB_OFFLINE
-          value: '1'
-        - name: TRANSFORMERS_OFFLINE
-          value: '1'
-        - name: HF_DATASETS_OFFLINE
-          value: '1'
-        - name: VLLM_MAX_TOKENS_1
-          value: '4096'
-        - name: VLLM_API_TOKEN_1
-          value: fake
-        - name: PGVECTOR_HOST
-          value: genai-pgvector.ai-test.svc.cluster.local
-        - name: PGVECTOR_PORT
-          value: '5432'
-        - name: PGVECTOR_DB
-          value: vectordb
-        - name: PGVECTOR_USER
-          value: vectoruser
-        - name: PGVECTOR_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              key: password
-              name: genai-pgvector-credentials
-        - name: OGX_CONFIG_DIR
-          value: /opt/app-root/src/.ogx/distributions/rh/
+      - name: VLLM_TLS_VERIFY
+        value: 'false'
+      - name: FAISS_STORE_DIR
+        value: ~/.llama/faiss
+      - name: SENTENCE_TRANSFORMERS_HOME
+        value: /opt/app-root/.cache/huggingface/hub
+      - name: HF_HUB_OFFLINE
+        value: '1'
+      - name: TRANSFORMERS_OFFLINE
+        value: '1'
+      - name: HF_DATASETS_OFFLINE
+        value: '1'
+      - name: VLLM_MAX_TOKENS_1
+        value: '4096'
+      - name: VLLM_API_TOKEN_1
+        value: fake
+      - name: PGVECTOR_HOST
+        value: genai-pgvector.ai-test.svc.cluster.local
+      - name: PGVECTOR_PORT
+        value: '5432'
+      - name: PGVECTOR_DB
+        value: vectordb
+      - name: PGVECTOR_USER
+        value: vectoruser
+      - name: PGVECTOR_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            key: password
+            name: genai-pgvector-credentials
+      - name: OGX_CONFIG_DIR
+        value: /opt/app-root/src/.ogx/distributions/rh/
     replicas: 1
     resources:
       limits:
@@ -972,7 +972,7 @@ providers:
         base_url: http://ai-test-inference-openshift-default.ai-test.svc.cluster.local/ai-test/qwen36-35b-a3b-fp8-pp3/v1
 ```
 
-Retain its existing token, maximum-token, TLS, model-registration, persistence, vector-store, file, and tool settings. Do not replace the entire ConfigMap with this fragment. The full ConfigMap was not supplied in the conversation, so exporting it from the working cluster is required for a complete standalone Playground rebuild.
+Retain its existing token, maximum-token, TLS, model-registration, persistence, vector-store, file, and tool settings. Do not replace the entire ConfigMap with this fragment. The complete captured ConfigMap is now included in section 10.3.
 
 When migrating from the old shared gateway, the successful repair was:
 
@@ -1016,6 +1016,363 @@ jq -r '
 It must show the **new `ai-test` gateway** and end in `/v1`. The registered provider's backend model name must be `qwen36-35b-a3b-fp8-pp3` (or its served publisher alias), not an obsolete one-GPU model identifier. The Playground may display the provider-qualified name `vllm-inference-1/...`.
 
 Refresh/reopen the Playground after changing configuration. Recheck the provider URL when adding or reconfiguring models through the UI, because the Playground ConfigMap can be managed by dashboard workflows.
+
+### 10.3 Complete captured Playground and database configuration
+
+These manifests come from the October 19 refreshed archive. Old owner UIDs, generated metadata, allocated Service IPs, and PVC volume bindings have been removed. Apply only in a fresh/recovery namespace after the operators are ready. On an existing installation, keep its credentials and data.
+
+Recreation order:
+
+1. Create `ai-test` and ensure `ocs-storagecluster-ceph-rbd` exists.
+2. Create the database password Secret below (new database only).
+3. Apply the database PVC, initialization ConfigMap, Service, and Deployment.
+4. Apply the complete `llama-stack-config` ConfigMap.
+5. Apply the OGXServer in section 10.1; check its health and test a Playground request.
+
+Create a new password without displaying it or placing it in process arguments. **Do not run this to rotate an existing database password:** replacing a Secret does not change the password in an initialized PostgreSQL database.
+
+```bash
+(
+  set -euo pipefail
+  umask 077
+  secret_dir=$(mktemp -d)
+  trap 'rm -rf "$secret_dir"' EXIT
+  openssl rand -hex 32 | tr -d '\n' > "$secret_dir/password"
+  oc create secret generic genai-pgvector-credentials -n ai-test \
+    --from-file=password="$secret_dir/password"
+)
+```
+
+Save the following as `08-pgvector.yaml`:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    gen-ai.opendatahub.io/pgvector: 'true'
+  name: genai-pgvector-storage
+  namespace: ai-test
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: ocs-storagecluster-ceph-rbd
+  volumeMode: Filesystem
+---
+apiVersion: v1
+data:
+  enable-pgvector.sh: |
+    #!/bin/bash
+    psql -U postgres -d "${POSTGRESQL_DATABASE}" -c "CREATE EXTENSION IF NOT EXISTS vector;"
+kind: ConfigMap
+metadata:
+  labels:
+    gen-ai.opendatahub.io/pgvector: 'true'
+  name: genai-pgvector-init
+  namespace: ai-test
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    gen-ai.opendatahub.io/pgvector: 'true'
+  name: genai-pgvector
+  namespace: ai-test
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: postgresql
+    port: 5432
+    protocol: TCP
+    targetPort: 5432
+  selector:
+    app: genai-pgvector
+    gen-ai.opendatahub.io/pgvector: 'true'
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    gen-ai.opendatahub.io/pgvector: 'true'
+  name: genai-pgvector
+  namespace: ai-test
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: genai-pgvector
+      gen-ai.opendatahub.io/pgvector: 'true'
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: genai-pgvector
+        gen-ai.opendatahub.io/pgvector: 'true'
+    spec:
+      containers:
+      - env:
+        - name: POSTGRESQL_DATABASE
+          value: vectordb
+        - name: POSTGRESQL_USER
+          value: vectoruser
+        - name: POSTGRESQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: genai-pgvector-credentials
+        image: registry.redhat.io/rhel9/postgresql-16
+        imagePullPolicy: Always
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - vectoruser
+            - -d
+            - vectordb
+          failureThreshold: 3
+          periodSeconds: 20
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: postgresql
+        ports:
+        - containerPort: 5432
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - vectoruser
+            - -d
+            - vectordb
+          failureThreshold: 3
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 250m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+        startupProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - vectoruser
+            - -d
+            - vectordb
+          failureThreshold: 18
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 1
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/lib/pgsql/data
+          name: pgdata
+        - mountPath: /opt/app-root/src/postgresql-start
+          name: init-scripts
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: pgdata
+        persistentVolumeClaim:
+          claimName: genai-pgvector-storage
+      - configMap:
+          defaultMode: 493
+          name: genai-pgvector-init
+        name: init-scripts
+```
+
+```bash
+oc apply -f 08-pgvector.yaml
+oc rollout status deployment/genai-pgvector -n ai-test --timeout=180s
+oc exec -n ai-test deployment/genai-pgvector -- \
+  psql -U postgres -d vectordb -c "SELECT extname, extversion FROM pg_extension WHERE extname='vector';"
+```
+
+The captured image is `registry.redhat.io/rhel9/postgresql-16` (a mutable tag). The startup script enables the `vector` extension; the query above must return a row. Preserve the actual image digest for strict repeatability, and verify that the destination image contains the extension.
+
+Save the following as `09-llama-stack-config.yaml`. This is the full configuration, including model registration and storage providers:
+
+```yaml
+apiVersion: v1
+data:
+  config.yaml: |
+    # Llama Stack Configuration
+    version: "2"
+    distro_name: rh
+    apis:
+    - responses
+    - file_processors
+    - files
+    - inference
+    - tool_runtime
+    - vector_io
+    providers:
+      inference:
+      - provider_id: sentence-transformers
+        provider_type: inline::sentence-transformers
+        config:
+          trust_remote_code: false
+      - provider_id: vllm-inference-1
+        provider_type: remote::vllm
+        config:
+          api_token: ${env.VLLM_API_TOKEN_1:=fake}
+          base_url: http://ai-test-inference-openshift-default.ai-test.svc.cluster.local/ai-test/qwen36-35b-a3b-fp8-pp3/v1
+          max_tokens: ${env.VLLM_MAX_TOKENS_1:=4096}
+          tls_verify: ${env.VLLM_TLS_VERIFY:=true}
+      vector_io:
+      - provider_id: pgvector
+        provider_type: remote::pgvector
+        config:
+          db: ${env.PGVECTOR_DB:=vectordb}
+          distance_metric: COSINE
+          host: ${env.PGVECTOR_HOST}
+          password: ${env.PGVECTOR_PASSWORD:=}
+          persistence:
+            backend: kv_default
+            namespace: vector_io::pgvector
+          port: ${env.PGVECTOR_PORT:=5432}
+          user: ${env.PGVECTOR_USER:=vectoruser}
+      responses:
+      - provider_id: builtin
+        provider_type: inline::builtin
+        config:
+          persistence:
+            responses:
+              backend: sql_default
+              max_write_queue_size: 10000
+              num_writers: 4
+              table_name: responses
+      file_processors:
+      - provider_id: pypdf
+        provider_type: inline::pypdf
+        config: {}
+      files:
+      - provider_id: localfs-files
+        provider_type: inline::localfs
+        config:
+          metadata_store:
+            backend: sql_default
+            table_name: files_metadata
+          storage_dir: /opt/app-root/src/.llama/distributions/rh/files
+      tool_runtime:
+      - provider_id: file-search
+        provider_type: inline::file-search
+        config: {}
+      - provider_id: model-context-protocol
+        provider_type: remote::model-context-protocol
+        config: {}
+    metadata_store:
+      type: sqlite
+      db_path: /opt/app-root/src/.llama/distributions/rh/inference_store.db
+    storage:
+      backends:
+        kv_default:
+          db_path: /opt/app-root/src/.llama/distributions/rh/kvstore.db
+          type: kv_sqlite
+        sql_default:
+          db_path: /opt/app-root/src/.llama/distributions/rh/sql_store.db
+          type: sql_sqlite
+      stores:
+        connectors:
+          backend: sql_default
+          table_name: connectors
+        conversations:
+          backend: sql_default
+          table_name: openai_conversations
+        inference:
+          backend: sql_default
+          max_write_queue_size: 10000
+          num_writers: 4
+          table_name: inference_store
+        metadata:
+          backend: kv_default
+          namespace: registry
+        prompts:
+          backend: sql_default
+          table_name: prompts
+    vector_stores:
+      default_provider_id: pgvector
+      default_embedding_model:
+        provider_id: sentence-transformers
+        model_id: ibm-granite/granite-embedding-125m-english
+      annotation_prompt_params:
+        enable_annotations: true
+      file_ingestion_params:
+        default_chunk_overlap_tokens: 128
+        default_chunk_size_tokens: 512
+      chunk_retrieval_params:
+        chunk_multiplier: 5
+        default_reranker_strategy: rrf
+        default_search_mode: vector
+        max_tokens_in_context: 4000
+        rrf_impact_factor: 60
+        weighted_search_alpha: 0.5
+      file_batch_params:
+        cleanup_interval_seconds: 86400
+        file_batch_chunk_size: 10
+        max_concurrent_files_per_batch: 3
+    registered_resources:
+      models:
+      - provider_id: sentence-transformers
+        model_id: sentence-transformers/ibm-granite/granite-embedding-125m-english
+        provider_model_id: ibm-granite/granite-embedding-125m-english
+        model_type: embedding
+        metadata:
+          embedding_dimension: 768
+      - provider_id: vllm-inference-1
+        model_id: qwen36-35b-a3b-fp8-pp3
+        model_type: llm
+        metadata:
+          display_name: Qwen3.6-35B-A3B-FP8 - Three A40s
+      vector_stores: []
+    external_providers_dir: /opt/app-root/.llama/providers.d
+    server:
+      port: 8321
+kind: ConfigMap
+metadata:
+  labels:
+    ogx.io/server: lsd-genai-playground
+    ogx.io/watch: 'true'
+    opendatahub.io/dashboard: 'true'
+  name: llama-stack-config
+  namespace: ai-test
+```
+
+```bash
+oc apply -f 09-llama-stack-config.yaml
+# Apply the OGXServer YAML from section 10.1 after its dependencies exist.
+```
+
+**Persistence boundary:** PostgreSQL has a 5Gi RBD PVC. OGX also references SQLite databases and uploaded files under `/opt/app-root/src/.llama/distributions/rh/`; the captured OGXServer does not explicitly attach a PVC at that path. Do not assume those files survive pod replacement. Inspect the generated Deployment and back up/restore those paths separately if retaining conversations or uploaded content matters. The `llm-models` PVC is separate and is not mounted by these database or OGXServer manifests.
 
 ## 11. Validation and performance
 
@@ -1175,54 +1532,510 @@ Do not manually set `status.Ready`, `Programmed`, or other controller-owned stat
 
 ## 13. Capture the live configuration
 
-These commands capture installation-specific details that are not fully represented in the conversation. Run them on the working cluster to retain the exact final configuration. Generated exports contain status and metadata; clean them before applying to a different cluster.
+### 13.1 Refreshed capture and recreation boundaries
 
-```bash
-mkdir -p three-a40-backup
+Source: `three-a40-capture.tar(1).gz`, supplied October 19, 2026, containing 24 JSON exports. Every export parsed successfully. The model now has `serving.kserve.io/stop: "false"`, pipeline size 3, tensor size 1, and one replica group. The capture helper removed status, so this archive establishes desired configuration, not current readiness or performance.
 
-oc get llminferenceservice qwen36-35b-a3b-fp8-pp3 -n ai-test -o yaml \
-  > three-a40-backup/llminferenceservice.yaml
-oc get llminferenceserviceconfig \
-  v3-5-1-kserve-config-llm-worker-pipeline-parallel \
-  -n redhat-ods-applications -o yaml \
-  > three-a40-backup/pipeline-runtime.yaml
-oc get llminferenceserviceconfigs -n redhat-ods-applications -o yaml \
-  > three-a40-backup/serving-configs.yaml
-oc get gateway ai-test-inference -n ai-test -o yaml \
-  > three-a40-backup/gateway.yaml
-oc get gatewayclass openshift-default -o yaml \
-  > three-a40-backup/gatewayclass.yaml
-oc get route qwen36-pp3 -n ai-test -o yaml \
-  > three-a40-backup/route.yaml
-oc get httproute,inferencepool -n ai-test -o yaml \
-  > three-a40-backup/generated-routing-reference.yaml
-oc get network-attachment-definition rdma-bond -n ai-test -o yaml \
-  > three-a40-backup/rdma-nad.yaml
-oc get macvlannetwork rdma-bond -n ai-test -o yaml \
-  > three-a40-backup/macvlan-parent.yaml
-oc get nicclusterpolicies -o yaml \
-  > three-a40-backup/network-operator-policy.yaml
-oc get clusterpolicies.nvidia.com -o yaml \
-  > three-a40-backup/gpu-operator-policy.yaml
-oc get nodenetworkconfigurationpolicies -o yaml \
-  > three-a40-backup/host-network-policies.yaml
-oc get ogxserver lsd-genai-playground -n ai-test -o yaml \
-  > three-a40-backup/ogxserver.yaml
-oc get configmap llama-stack-config -n ai-test -o yaml \
-  > three-a40-backup/playground-config.yaml
-oc get deployment genai-pgvector -n ai-test -o yaml \
-  > three-a40-backup/pgvector-deployment.yaml
-oc get pvc -n ai-test -o yaml \
-  > three-a40-backup/project-pvcs.yaml
-oc get configs.imageregistry.operator.openshift.io cluster -o yaml \
-  > three-a40-backup/registry-config.yaml
-oc get pvc odf-image-registry-pvc -n openshift-image-registry -o yaml \
-  > three-a40-backup/registry-pvc.yaml
+The manifests in sections 6–8 and 10 were reconciled against this capture. Reconstruction removes controller-owned metadata, old owner references, fixed Service IPs, and PVC bindings. Model registry IDs (`local-model-registry`, registered model `3`, version `4`) and hardware-profile resource version are intentionally not copied into the portable model manifest. Resolve them on the destination cluster if restoring dashboard registry associations.
+
+| Captured resource | Recreation handling |
+|---|---|
+| GPU ClusterPolicy, NicClusterPolicy, NNCPs | Site-specific parent configuration below; review interface names and node selectors before applying |
+| MacvlanNetwork | Apply parent; Network Operator creates the NAD |
+| Custom pipeline runtime | Full current YAML in section 6 |
+| Vendor runtime/router/scheduler configurations | Installed by matching OpenShift AI version; inventory below, do not overwrite with bulk exports |
+| Gateway, model, external Route | Sections 7–9; gateway proxy Service and model routing are generated |
+| OGXServer, config, PostgreSQL and initialization script | Sections 10.1 and 10.3 |
+| PostgreSQL/registry PVCs | Fresh claims without old volumeName; manifests do not restore data |
+| CephFS StorageClass | ODF-managed reference; recreate ODF rather than applying its generated class in isolation |
+| Subscriptions | Version/channel inventory below; not an instruction to install unrelated captured operators |
+
+### 13.2 GPU Operator policy
+
+The captured policy has MIG strategy `none` and no device-plugin sharing ConfigMap selected. The `mps.root` field alone does not establish MPS sharing. This runbook continues to request one complete GPU per serving pod.
+
+```yaml
+apiVersion: nvidia.com/v1
+kind: ClusterPolicy
+metadata:
+  name: gpu-cluster-policy
+spec:
+  ccManager:
+    enabled: true
+  cdi:
+    default: false
+    enabled: true
+    nriPluginEnabled: false
+  daemonsets:
+    rollingUpdate:
+      maxUnavailable: '1'
+    updateStrategy: RollingUpdate
+  dcgm:
+    enabled: true
+  dcgmExporter:
+    config:
+      name: ''
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  devicePlugin:
+    enabled: true
+    mps:
+      root: /run/nvidia/mps
+  driver:
+    certConfig:
+      name: ''
+    enabled: true
+    kernelModuleConfig:
+      name: ''
+    kernelModuleType: open
+    licensingConfig:
+      nlsEnabled: true
+      secretName: ''
+    repoConfig:
+      configMapName: ''
+    upgradePolicy:
+      autoUpgrade: true
+      drain:
+        deleteEmptyDir: false
+        enable: false
+        force: false
+        timeoutSeconds: 300
+      maxParallelUpgrades: 1
+      maxUnavailable: 25%
+      podDeletion:
+        deleteEmptyDir: false
+        force: false
+        timeoutSeconds: 300
+      waitForCompletion:
+        timeoutSeconds: 0
+    useNvidiaDriverCRD: false
+    virtualTopology:
+      config: ''
+  gdrcopy:
+    enabled: false
+  gds:
+    enabled: false
+  gfd:
+    enabled: true
+  kataSandboxDevicePlugin:
+    enabled: true
+  mig:
+    strategy: none
+  migManager:
+    enabled: true
+  nodeStatusExporter:
+    enabled: true
+  operator:
+    runtimeClass: nvidia
+    use_ocp_driver_toolkit: true
+  sandboxDevicePlugin:
+    enabled: true
+  sandboxWorkloads:
+    defaultWorkload: container
+    enabled: false
+    mode: kubevirt
+  toolkit:
+    enabled: true
+    installDir: /usr/local/nvidia
+  validator:
+    plugin:
+      env: []
+  vfioManager:
+    enabled: true
+  vgpuDeviceManager:
+    enabled: true
+  vgpuManager:
+    enabled: false
 ```
 
-Back up backing data separately: registry blobs, OGX stores/database, and any model metadata registry database. A YAML manifest for a PVC does not back up its data. Some full operator/config exports can contain credentials (for example, registry `httpSecret` or inline provider settings); protect and review the backup before sharing it. Reissue token Secrets on another cluster rather than copying service-account tokens across clusters.
+### 13.3 Network Operator policy
 
-The created LWS, HTTPRoute, InferencePool, proxy Services, and serving pods are controller-managed outputs. Retain their exports as diagnostic references; rebuild them by applying their parent Gateway and LLMInferenceService resources.
+This is the captured configuration, including its driver upgrade/drain settings. It enables automatic upgrades and forced drains with `safeLoad: false`; review these maintenance settings before applying to another cluster. The plugin selects the two physical NIC interfaces and advertises 1,000 shared RDMA allocation units.
+
+```yaml
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: nic-cluster-policy
+spec:
+  ofedDriver:
+    env:
+    - name: UNLOAD_STORAGE_MODULES
+      value: 'true'
+    - name: DISABLE_SAFE_DRIVER_LOADING
+      value: 'true'
+    forcePrecompiled: false
+    image: doca-driver
+    imagePullSecrets: []
+    livenessProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+    readinessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    repository: nvcr.io/nvidia/mellanox
+    startupProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 20
+    terminationGracePeriodSeconds: 300
+    upgradePolicy:
+      autoUpgrade: true
+      drain:
+        deleteEmptyDir: true
+        enable: true
+        force: true
+        podSelector: ''
+        timeoutSeconds: 300
+      maxParallelUpgrades: 1
+      safeLoad: false
+    version: doca3.5.0-26.07-0.7.7.0-0
+  rdmaSharedDevicePlugin:
+    config: |
+      {
+        "configList": [
+          {
+            "resourceName": "rdma_shared_device_dx_bond",
+            "rdmaHcaMax": 1000,
+            "selectors": {
+              "ifNames": [
+              "enp1s0f0np0",
+              "enp1s0f1np1"
+            ]
+            }
+          }
+        ]
+      }
+    image: k8s-rdma-shared-dev-plugin
+    imagePullSecrets: []
+    repository: nvcr.io/nvidia/mellanox
+    version: sha256:2d28133fdee8c263e19b4d0656bf58d30513c9d13e47ef84bd68c5499b3c18ce
+```
+
+### 13.4 Host network and operator-owned macvlan
+
+The bond policy targets nodes labeled `node-role.kubernetes.io/master`. Confirm that selector matches the intended GPU nodes on the destination cluster. Physical interfaces and `bond1` use MTU 9100; inference macvlan uses MTU 9000. The inference attachment is on **bond1 directly**, with `172.16.101.0/24`; it does not select `bond1.100`.
+
+Apply the bond policy before the MacvlanNetwork. Switch-side LACP and the corresponding untagged/native network must already match the host design.
+
+```yaml
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: 100gb-bond-nnc
+spec:
+  desiredState:
+    interfaces:
+    - ipv4:
+        enabled: false
+      ipv6:
+        enabled: false
+      mtu: 9100
+      name: enp1s0f0np0
+      state: up
+      type: ethernet
+    - ipv4:
+        enabled: false
+      ipv6:
+        enabled: false
+      mtu: 9100
+      name: enp1s0f1np1
+      state: up
+      type: ethernet
+    - ipv4:
+        enabled: false
+      ipv6:
+        enabled: false
+      link-aggregation:
+        mode: 802.3ad
+        options:
+          lacp_rate: fast
+          miimon: '100'
+          xmit_hash_policy: layer3+4
+        port:
+        - enp1s0f0np0
+        - enp1s0f1np1
+      mtu: 9100
+      name: bond1
+      state: up
+      type: bond
+  nodeSelector:
+    node-role.kubernetes.io/master: ''
+---
+apiVersion: mellanox.com/v1alpha1
+kind: MacvlanNetwork
+metadata:
+  name: rdma-bond
+spec:
+  ipam: |
+    {
+      "type": "whereabouts",
+      "range": "172.16.101.0/24",
+      "exclude": [
+        "172.16.101.0/30",
+        "172.16.101.255/32"
+      ]
+    }
+  master: bond1
+  mode: bridge
+  mtu: 9000
+  networkNamespace: ai-test
+```
+
+The following VLAN 100 policies are captured **storage-network references**, not required inference network attachments. They configure separate NVMe/TCP addresses; apply only if recreating that storage network too.
+
+```yaml
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: ocp113-nvme-storage-vlan100
+spec:
+  desiredState:
+    interfaces:
+    - description: NVMe TCP storage VLAN 100 over 100G bond1
+      ipv4:
+        address:
+        - ip: 172.16.100.113
+          prefix-length: 24
+        dhcp: false
+        enabled: true
+      ipv6:
+        enabled: false
+      mtu: 9000
+      name: bond1.100
+      state: up
+      type: vlan
+      vlan:
+        base-iface: bond1
+        id: 100
+  nodeSelector:
+    kubernetes.io/hostname: ocp113.localdomain
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: ocp114-nvme-storage-vlan100
+spec:
+  desiredState:
+    interfaces:
+    - description: NVMe TCP storage VLAN 100 over 100G bond1
+      ipv4:
+        address:
+        - ip: 172.16.100.114
+          prefix-length: 24
+        dhcp: false
+        enabled: true
+      ipv6:
+        enabled: false
+      mtu: 9000
+      name: bond1.100
+      state: up
+      type: vlan
+      vlan:
+        base-iface: bond1
+        id: 100
+  nodeSelector:
+    kubernetes.io/hostname: ocp114.localdomain
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: ocp115-nvme-storage-vlan100
+spec:
+  desiredState:
+    interfaces:
+    - description: NVMe TCP storage VLAN 100 over 100G bond1
+      ipv4:
+        address:
+        - ip: 172.16.100.115
+          prefix-length: 24
+        dhcp: false
+        enabled: true
+      ipv6:
+        enabled: false
+      mtu: 9000
+      name: bond1.100
+      state: up
+      type: vlan
+      vlan:
+        base-iface: bond1
+        id: 100
+  nodeSelector:
+    kubernetes.io/hostname: ocp115.localdomain
+```
+
+### 13.5 Registry and storage
+
+The registry uses a 500Gi RWX CephFS claim, one replica, RollingUpdate, and a default Route. Create the PVC only for a fresh registry, then reconcile the existing registry Config with these desired fields. Its generated `httpSecret` and observed TLS configuration are excluded; do not replace existing registry credentials. Restore/import model blobs separately.
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odf-image-registry-pvc
+  namespace: openshift-image-registry
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 500Gi
+  storageClassName: ocs-storagecluster-cephfs
+  volumeMode: Filesystem
+---
+apiVersion: imageregistry.operator.openshift.io/v1
+kind: Config
+metadata:
+  name: cluster
+spec:
+  defaultRoute: true
+  logLevel: Normal
+  managementState: Managed
+  operatorLogLevel: Normal
+  proxy: {}
+  replicas: 1
+  requests:
+    read:
+      maxWaitInQueue: 0s
+    write:
+      maxWaitInQueue: 0s
+  rolloutStrategy: RollingUpdate
+  storage:
+    managementState: Unmanaged
+    pvc:
+      claim: odf-image-registry-pvc
+  unsupportedConfigOverrides: null
+```
+
+Additional captured claim, separate from ModelCar and PostgreSQL:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-models
+  namespace: ai-test
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 150Gi
+  storageClassName: ocs-storagecluster-cephfs
+  volumeMode: Filesystem
+```
+
+The captured CephFS class uses `openshift-storage.cephfs.csi.ceph.com`, filesystem `ocs-storagecluster-cephfilesystem`, cluster ID `openshift-storage`, immediate binding, expansion enabled, and reclaim policy `Delete`. PostgreSQL instead uses `ocs-storagecluster-ceph-rbd`, whose StorageClass export was not included. Both require functioning ODF provisioners and their generated credentials.
+
+### 13.6 OpenShift AI and GatewayClass
+
+The DataScienceCluster is captured in full below; many enabled components are unrelated to this inference service. On an existing cluster, merge intended settings rather than replacing unrelated component choices. OGX and KServe are Managed; the older llamastackoperator is Removed.
+
+```yaml
+apiVersion: datasciencecluster.opendatahub.io/v2
+kind: DataScienceCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: datasciencecluster
+  name: default-dsc
+spec:
+  components:
+    aipipelines:
+      managementState: Managed
+    dashboard:
+      managementState: Managed
+    feastoperator:
+      managementState: Managed
+    kserve:
+      managementState: Managed
+      modelsAsService:
+        managementState: Removed
+      nim:
+        airGapped: false
+        managementState: Managed
+      rawDeploymentServiceConfig: Headed
+      wva:
+        managementState: Removed
+    kueue:
+      autoCreateQueues: false
+      defaultClusterQueueName: default
+      defaultLocalQueueName: default
+      managementState: Removed
+    llamastackoperator:
+      managementState: Removed
+    mlflowoperator:
+      managementState: Managed
+    modelregistry:
+      managementState: Managed
+      registriesNamespace: rhoai-model-registries
+    ogx:
+      managementState: Managed
+    ray:
+      managementState: Managed
+    sparkoperator:
+      managementState: Removed
+    trainer:
+      managementState: Removed
+    trainingoperator:
+      managementState: Removed
+    trustyai:
+      managementState: Managed
+      mcpGuardrailsMode: false
+    workbenches:
+      managementState: Managed
+      workbenchNamespace: rhods-notebooks
+```
+
+GatewayClass parent configuration:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: openshift-default
+spec:
+  controllerName: openshift.io/gateway-controller/v1
+```
+
+The Gen AI Studio dashboard feature setting is separate from this DataScienceCluster export. Preserve the existing dashboard configuration when recreating the UI.
+
+### 13.7 Operator and runtime inventory
+
+Subscription specs show requested channels and optional startingCSV, not proof of the currently installed CSV (status was omitted). Operators and catalogs must provide the APIs before applying their custom resources.
+
+| Package | Namespace | Channel | Starting CSV, if captured |
+|---|---|---|---|
+| `openshift-cert-manager-operator` | `cert-manager-operator` | `stable-v1` | `cert-manager-operator.v1.20.0` |
+| `gpu-operator-certified` | `nvidia-gpu-operator` | `v26.3` | `gpu-operator-certified.v26.3.3` |
+| `nvidia-network-operator` | `nvidia-network-operator` | `stable` | `nvidia-network-operator.v26.7.0` |
+| `leader-worker-set` | `openshift-lws-operator` | `stable-v1.0` | `leader-worker-set.v1.0.0` |
+| `nfd` | `openshift-nfd` | `stable` | `nfd.4.22.0-202608251608` |
+| `kubernetes-nmstate-operator` | `openshift-nmstate` | `stable` | `kubernetes-nmstate-operator.4.22.0-202608260901` |
+| `authorino-operator` | `openshift-operators` | `stable` | `authorino-operator.v1.4.3` |
+| `limitador-operator` | `openshift-operators` | `stable` | `limitador-operator.v1.4.2` |
+| `rhcl-operator` | `openshift-operators` | `stable` | `rhcl-operator.v1.4.3` |
+| `odf-operator` | `openshift-storage` | `stable-4.22` | `odf-operator.v4.22.3-rhodf` |
+| `rhods-operator` | `redhat-ods-operator` | `stable-3.x` | `rhods-operator.3.5.0` |
+
+Captured KServe configuration families: `v3-5-0-*` and `v3-5-1-*`. The custom runtime uses `v3-5-1-kserve-config-llm-worker-pipeline-parallel`. Keep the matching vendor templates, router, scheduler, tokenizer, and tracing resources supplied by that installation.
+
+### 13.8 Remaining external prerequisites and capture commands
+
+The archive does not contain switch configuration, model image bytes/digest, database backups, SCC assignments, dashboard configuration, or the hardware profile. These are not silently invented here. Use these read-only commands to record the remaining Kubernetes settings; do not export Secrets.
+
+```bash
+oc get hardwareprofiles.infrastructure.opendatahub.io nvidia-1-gpu -n redhat-ods-applications -o yaml
+oc get odhdashboardconfigs.opendatahub.io -n redhat-ods-applications -o yaml
+oc get storageclass ocs-storagecluster-ceph-rbd -o yaml
+oc get pods -n ai-test -o json | jq '[.items[] | {name: .metadata.name, serviceAccount: .spec.serviceAccountName, scc: .metadata.annotations["openshift.io/scc"], images: [.status.containerStatuses[]? | {name, image, imageID}]}]'
+oc get rolebindings -n ai-test -o yaml
+oc get llminferenceservice qwen36-35b-a3b-fp8-pp3 -n ai-test -o json | jq '{generation: .metadata.generation, status: .status}'
+oc get deployment lsd-genai-playground -n ai-test -o json | jq '{volumes: .spec.template.spec.volumes, containers: [.spec.template.spec.containers[] | {name, volumeMounts}]}]'
+```
+
+Record the relevant SCC definition after identifying its name from the pod output, and verify bindings for the actual serving service account. Do not grant privileged namespace-wide access to bypass a missing prerequisite. Review full resource exports before sharing: annotations or inline configuration may carry credentials.
+
+Back up registry blobs, PostgreSQL data, OGX SQLite/files, and model-registry data separately. Reissue service-account token Secrets on a new cluster. Do not apply archived HTTPRoute, InferencePool, LeaderWorkerSet, or proxy Service objects over their controllers; recreate them from their parents.
 
 ## 14. Python CLI
 
