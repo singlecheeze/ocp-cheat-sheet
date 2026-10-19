@@ -1,8 +1,8 @@
-# Three A40 GPUs Serving One Qwen Model on OpenShift AI 3.5
+# Three A40 Runbook
 
 **Recreation runbook • updated October 19, 2026 from the refreshed live capture**
 
-This document records the configuration that worked in this environment: one Qwen model split across three servers, with one NVIDIA A40 per server, llm-d routing, RoCE communication, an external HTTPS Route, and the OpenShift AI Gen AI Playground.
+This document records the configuration that worked in this environment: one Qwen model split across three servers, with one NVIDIA A40 per server, llm-d routing, RoCE communication, an external HTTPS Route, the OpenShift AI Gen AI Playground, and a persistent Open WebUI browser interface.
 
 The manifests below are a clean reconstruction from the uploaded configuration and the successful changes in this conversation. Generated status, UIDs, resource versions, and credentials are excluded. They have not been reapplied to the live cluster as part of writing this document.
 
@@ -24,7 +24,8 @@ The manifests below are a clean reconstruction from the uploaded configuration a
 12. [Operations and troubleshooting](#12-operations-and-troubleshooting)
 13. [Capture the live configuration](#13-capture-the-live-configuration)
 14. [Python CLI](#14-python-cli)
-15. [References](#15-references)
+15. [Open WebUI — validated browser chat interface](#15-open-webui--validated-browser-chat-interface)
+16. [References](#16-references)
 
 ## 1. Working architecture and settings
 
@@ -60,6 +61,7 @@ flowchart TD
     Client["curl or Python CLI"] --> Route["HTTPS Route: qwen36-pp3"]
     Route --> Gateway["Gateway: ai-test-inference"]
     Playground["Gen AI Playground / OGX"] --> Gateway
+    WebUI["Open WebUI / persistent chat"] --> Gateway
     Gateway --> Routing["HTTPRoute / InferencePool / scheduler"]
     Routing --> Leader["Pipeline rank 0: one A40"]
     Leader <--> Worker1["Pipeline rank 1: one A40"]
@@ -2574,7 +2576,300 @@ if __name__ == "__main__":
 
 </details>
 
-## 15. References
+## 15. Open WebUI — validated browser chat interface
+
+### 15.1 Tested configuration and architecture
+
+Open WebUI was deployed and tested on October 19, 2026 against the existing three-A40 model. The user reported the browser/persistence test worked, and provided two successful restart rollouts. The replacement pod used **restricted-v2** with service account **open-webui**. No custom image, anyuid grant, privileged SCC, or additional GPU allocation was needed for this tested image.
+
+| Setting | Validated value |
+|---|---|
+| Release | Open WebUI v0.12.3, linux/amd64 image digest pinned below |
+| Namespace / Deployment | `ai-test` / `open-webui` |
+| Application replicas / workers | 1 / 1 |
+| Update strategy | Recreate |
+| CPU request / limit | 500m / 2 |
+| Memory request / limit | 1Gi / 4Gi |
+| PVC | `open-webui-data`, 10Gi RWO, `ocs-storagecluster-ceph-rbd` |
+| Persistent mount | `/app/backend/data` |
+| Signing key | Secret `open-webui-secrets`, key `WEBUI_SECRET_KEY` |
+| Authentication | Enabled; default new-user role `pending` |
+| Model | `qwen36-35b-a3b-fp8-pp3` |
+| Browser URL | `https://open-webui-ai-test.apps.ocp4.localdomain` |
+| SCC | `restricted-v2`, confirmed after restart |
+
+Request flow: browser → Open WebUI HTTPS Route → Open WebUI Service/pod → existing internal inference gateway → scheduler/model workers. Open WebUI calls the model directly through its OpenAI-compatible endpoint; it does not require OGX to process its chat requests. The CLI and Gen AI Playground remain available.
+
+Unlike the captured OGX layout in section 10, Open WebUI's application database and local data directory are mounted on a PVC. Its signing key is independently preserved in a Secret. Keep both for recovery. A PVC is persistence, not a backup.
+
+### 15.2 Verify the backend and image
+
+The exact base URL is:
+
+```text
+http://ai-test-inference-openshift-default.ai-test.svc.cluster.local/ai-test/qwen36-35b-a3b-fp8-pp3/v1
+```
+
+Before installation, GET `/models` and POST `/chat/completions` both returned HTTP 200 from the existing Playground pod. Model discovery returned the short model ID and `publishers/ai-test/models/qwen36-35b-a3b-fp8-pp3`; these are aliases for the same model. The non-thinking test returned `Hello!`, using 18 prompt tokens and 3 completion tokens.
+
+To inspect the release image from the oc workstation:
+
+```bash
+oc image info ghcr.io/open-webui/open-webui:v0.12.3 \
+  --filter-by-os=linux/amd64
+```
+
+Without `--filter-by-os`, oc reported a manifest list containing amd64, arm64, and unknown/unknown entries. That was an architecture-selection message, not an authentication or registry-connectivity failure. The manifest below pins the returned amd64 digest and selects amd64 nodes. Future upgrades require separate testing; this digest is the tested version, not a promise that it remains the latest release.
+
+### 15.3 Create the signing-key Secret once
+
+Run in the existing `ai-test` namespace. Do not overwrite the key on redeployment or restart. If the Secret already exists, retain it. The placeholder model API key `fake` is separate from this application signing key; the current model endpoint is unauthenticated.
+
+```bash
+(
+  set -euo pipefail
+  umask 077
+  secret_dir=$(mktemp -d)
+  trap 'rm -rf "$secret_dir"' EXIT
+  openssl rand -hex 32 | tr -d '\n' > "$secret_dir/WEBUI_SECRET_KEY"
+  oc create secret generic open-webui-secrets \
+    -n ai-test \
+    --from-file=WEBUI_SECRET_KEY="$secret_dir/WEBUI_SECRET_KEY"
+)
+```
+
+### 15.4 Apply the tested application resources
+
+Save as `open-webui.yaml`:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: open-webui
+  namespace: ai-test
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: open-webui-data
+  namespace: ai-test
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: ocs-storagecluster-ceph-rbd
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: open-webui
+  namespace: ai-test
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: open-webui
+  template:
+    metadata:
+      labels:
+        app: open-webui
+    spec:
+      serviceAccountName: open-webui
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: open-webui
+        image: ghcr.io/open-webui/open-webui@sha256:ef11a68f38457d831e23168486858c25b9d9c4399094c9e72c0d4d8767ac09de
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: PORT
+          value: '8080'
+        - name: HOME
+          value: /tmp
+        - name: DATA_DIR
+          value: /app/backend/data
+        - name: WEBUI_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: open-webui-secrets
+              key: WEBUI_SECRET_KEY
+        - name: WEBUI_AUTH
+          value: 'true'
+        - name: DEFAULT_USER_ROLE
+          value: pending
+        - name: ENABLE_OLLAMA_API
+          value: 'false'
+        - name: ENABLE_OPENAI_API
+          value: 'true'
+        - name: OPENAI_API_BASE_URL
+          value: http://ai-test-inference-openshift-default.ai-test.svc.cluster.local/ai-test/qwen36-35b-a3b-fp8-pp3/v1
+        - name: OPENAI_API_KEY
+          value: fake
+        - name: UVICORN_WORKERS
+          value: '1'
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 90
+        readinessProbe:
+          httpGet:
+            path: /health/db
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: data
+          mountPath: /app/backend/data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: open-webui-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: open-webui
+  namespace: ai-test
+spec:
+  selector:
+    app: open-webui
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+  type: ClusterIP
+```
+
+```bash
+oc apply -f open-webui.yaml
+oc rollout status deployment/open-webui -n ai-test --timeout=900s
+```
+
+Initial startup can include image downloads, database initialization, and embedding asset downloads. The existing model stays on its current GPUs. Keep a single replica and single Uvicorn worker for this SQLite-backed design; Recreate avoids overlapping application pods during rollouts and causes a brief UI outage.
+
+### 15.5 Create the HTTPS Route
+
+```bash
+oc create route edge open-webui \
+  -n ai-test \
+  --service=open-webui \
+  --port=http \
+  --insecure-policy=Redirect \
+  --dry-run=client -o yaml |
+oc apply -f -
+
+oc annotate route open-webui -n ai-test \
+  haproxy.router.openshift.io/timeout=300s \
+  --overwrite
+
+oc get route open-webui -n ai-test \
+  -o jsonpath='https://{.spec.host}{"\n"}'
+```
+
+The source cluster assigned `https://open-webui-ai-test.apps.ocp4.localdomain`. A different cluster will use its own apps domain. TLS terminates at the OpenShift router. The model connection uses its internal HTTP gateway address and does not need a certificate-verification bypass.
+
+### 15.6 Accounts, model selection, and chat test
+
+1. Open the printed URL and register the administrator account first.
+2. Select `qwen36-35b-a3b-fp8-pp3`. The publisher-qualified alias may also appear.
+3. Ask: **Explain pipeline parallelism in three short bullet points.** Confirm a complete answer appears and streaming works.
+4. Use the admin interface to create or approve a regular account with the user role, then verify model access in a private browser window. Keep regular accounts separate from administrator accounts.
+
+The logs supplied showed successful signup, model discovery, and `/api/chat/completions` requests. The user subsequently confirmed the requested test worked. Separate regular-user test details were not supplied, so repeat that account-access check when onboarding users on a new installation.
+
+Model reasoning behavior is request-dependent. The CLI sends `chat_template_kwargs.enable_thinking=false` by default; the tested WebUI deployment does not set that override. Do not assume it automatically reproduces the CLI's non-thinking latency. RAG/document upload, tools, SSO, and multi-replica operation were not validated in this chat-only installation.
+
+### 15.7 Persistence and restart validation
+
+Create a normal saved conversation containing **This is my persistence test.** Wait for the answer, then run:
+
+```bash
+oc rollout restart deployment/open-webui -n ai-test
+oc rollout status deployment/open-webui -n ai-test --timeout=300s
+```
+
+Refresh the browser, sign in if necessary, verify the saved conversation remains, and send another message. This test was reported successful, and two successive restart rollouts completed successfully. The model-serving pods do not need restarting for this check.
+
+Confirm the actual admitted SCC:
+
+```bash
+oc get pods -n ai-test -l app=open-webui -o json |
+jq '.items[] | {
+  name: .metadata.name,
+  serviceAccount: .spec.serviceAccountName,
+  scc: .metadata.annotations["openshift.io/scc"]
+}'
+```
+
+Observed after restart: service account `open-webui`, SCC `restricted-v2`. The namespace's captured UID and supplemental-group ranges were `1001120000/10000`; the manifest deliberately does not hardcode those ranges, allowing OpenShift to assign valid values on a different cluster.
+
+### 15.8 Diagnostics, backups, and common issues
+
+```bash
+oc get deployment open-webui -n ai-test
+oc get pods -n ai-test -l app=open-webui
+oc get pvc open-webui-data -n ai-test
+oc get route open-webui -n ai-test
+oc logs deployment/open-webui -n ai-test --tail=100
+```
+
+The `app=open-webui` label is present on the Pod template; it is not attached to the Deployment or PVC metadata in this tested manifest. Therefore use explicit names for those resources, rather than expecting `oc get deployment,pod,pvc -l app=open-webui` to return all three.
+
+If rollout fails:
+
+```bash
+oc describe deployment open-webui -n ai-test
+oc get events -n ai-test --sort-by=.metadata.creationTimestamp | tail -30
+```
+
+| Symptom | Check |
+|---|---|
+| oc image info reports a manifest list | Add `--filter-by-os=linux/amd64` |
+| Model missing or upstream 404 | Verify full path-prefixed base URL ending in `/v1`; inspect the saved OpenAI connection in the admin settings |
+| Environment change does not alter saved connection | Some settings persist in the application database; inspect the admin connection settings rather than deleting the PVC |
+| User cannot access the model | Check whether account is pending and verify model permissions |
+| Pod rejected or permission denied after an image upgrade | Inspect events and logs; the recorded digest worked under restricted-v2, but do not assume every future image does |
+| Chat interrupted during restart | Expected brief outage with one replica and Recreate; retry after readiness |
+| UI loads but generation fails | Inspect the chat error and backend logs; HTTP 200 on the frontend or start of a stream is not sufficient proof of a complete answer |
+
+Back up `open-webui-data` using a consistent database/volume backup procedure, and preserve `open-webui-secrets` securely. Do not publish the Secret in this runbook. Do not delete the PVC to troubleshoot a connection issue: it contains users and chat history, and the backing StorageClass uses Delete reclaim policy. Keep Open WebUI's data separate from the Playground's pgvector database.
+
+## 16. References
 
 - [RedHatAI/Qwen3.6-35B-A3B-FP8 model card](https://huggingface.co/RedHatAI/Qwen3.6-35B-A3B-FP8): model-specific parser flags and request-level non-thinking mode. The topology and conservative limits in this runbook are environment-specific adjustments.
 - [OpenShift AI 3.5: Distributed Inference with llm-d](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/deploy_models_using_distributed_inference_with_llm-d/index)
@@ -2588,4 +2883,9 @@ if __name__ == "__main__":
 - [Kubernetes: manually created persistent service-account tokens](https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/)
 - [OpenShift 4.22: image access permissions](https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/images/managing-images)
 
-**Completion check:** three serving ranks, NCCL RoCE channels, gateway `Programmed=True`, model `Ready=True`, successful external chat request, and successful Playground generation using the new gateway address.
+- [Open WebUI v0.12.3 release](https://github.com/open-webui/open-webui/releases/tag/v0.12.3)
+- [Open WebUI Kubernetes deployment](https://docs.openwebui.com/deployment/kubernetes/)
+- [Open WebUI environment configuration](https://docs.openwebui.com/reference/env-configuration/)
+- [Open WebUI container and authentication guidance](https://docs.openwebui.com/getting-started/advanced-topics/hardening/)
+
+**Completion check:** three serving ranks, NCCL RoCE channels, gateway `Programmed=True`, model `Ready=True`, successful external chat request, and successful Playground generation using the new gateway address, and Open WebUI chat with saved history retained after a UI pod restart.
