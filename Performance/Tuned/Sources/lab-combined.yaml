@@ -15,7 +15,11 @@ spec:
         [cpu]
         governor=powersave
         energy_perf_bias=normal
+        energy_performance_preference=power
         boost=1
+        
+        [sysfs]
+        /sys/devices/system/cpu/cpufreq/policy*/scaling_min_freq=413467
         
         [sysctl]
         # If a workload mostly uses anonymous memory and it hits this limit, the entire working set is buffered for I/O, and any more write buffering would require swapping, so it's time to throttle writes until I/O can catch up. Workloads that mostly use file mappings may be able to use even higher values. The generator of dirty data starts writeback at this percentage (System default is 20%).
