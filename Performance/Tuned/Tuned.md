@@ -10,6 +10,36 @@ $${\color{deeppink}\textbf{\textsf{Note:}}}$$ Please see below!
 - The profile with the highest priority (10) is openshift-control-planes and, therefore, it is considered first.
 - We include it anyway, see `include=openshift-control-plane` in the `tuned` profile. 
   
+#### Helpful for finding specifics for your CPUs
+```bash
+p=/sys/devices/system/cpu/cpufreq/policy0
+
+for attr in \
+  scaling_driver \
+  scaling_governor \
+  cpuinfo_min_freq \
+  scaling_min_freq \
+  cpuinfo_max_freq \
+  scaling_max_freq \
+  amd_pstate_lowest_nonlinear_freq \
+  energy_performance_available_preferences \
+  energy_performance_preference
+do
+  if [ -r "$p/$attr" ]; then
+    printf '%s: %s\n' "$attr" "$(cat "$p/$attr")"
+  fi
+done
+
+scaling_driver: amd-pstate-epp
+scaling_governor: powersave
+cpuinfo_min_freq: 413467
+scaling_min_freq: 413467
+cpuinfo_max_freq: 3765500
+scaling_max_freq: 3765500
+amd_pstate_lowest_nonlinear_freq: 2303600
+energy_performance_available_preferences: default performance balance_performance balance_power power
+energy_performance_preference: power
+```
 [Source: `Sources/lab-combined.yaml`](Sources/lab-combined.yaml)
 <!-- embed-code: ./Sources/lab-combined.yaml -->
 ```yaml
