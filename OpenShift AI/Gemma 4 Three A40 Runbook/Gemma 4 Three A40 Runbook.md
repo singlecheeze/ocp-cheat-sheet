@@ -1,10 +1,10 @@
-# Gemma 4 26B A4B FP8 — Three A40 Runbook
+# Gemma 4 31B BF16 — Three A40 Runbook
 
-**OpenShift 4.22 / OpenShift AI 3.5.x • prepared October 22, 2026 • deployment candidate, not cluster-validated**
+**OpenShift 4.22 / OpenShift AI 3.5.x • updated November 4, 2026 • deployment candidate, not cluster-validated**
 
-Deploy `RedHatAI/gemma-4-26B-A4B-it-FP8-dynamic` as an independent `LLMInferenceService` in namespace `gemma`, using three A40 GPUs, one per node, pipeline parallelism 3 and tensor parallelism 1. Includes ModelCar import, namespace-owned runtime, RoCE attachment, gateway, optional external model Route, and separate persistent Open WebUI.
+Create a new deployment of `google/gemma-4-31B-it` as an independent `LLMInferenceService` in namespace `gemma`, using three A40 GPUs, one per node, pipeline parallelism 3 and tensor parallelism 1. Includes ModelCar import, namespace-owned runtime, RoCE attachment, gateway, optional external model Route, and separate persistent Open WebUI.
 
-Adapted from the linked Nemotron runbook [B]. Its successful Nemotron results are **not** Gemma test results. The pinned upstream vLLM image below comes from that baseline; its source has Gemma multimodal and pipeline interfaces, but this exact checkpoint, FP8 fallback, image processing and three-node execution must pass the checks here. No commands have been executed against your cluster in preparing this document.
+Adapted from the linked Nemotron runbook [B]. Its successful Nemotron results are **not** Gemma test results. The pinned upstream vLLM image below comes from that baseline; its source has Gemma multimodal and pipeline interfaces, but this exact BF16 checkpoint, image processing and three-node execution must pass the checks here. No commands have been executed against your cluster in preparing this document.
 
 **Run only one three-GPU model at a time.** Prepare CPU-only resources first. Stop the currently active model through its own procedure before the GPU probe, and release the probe GPU before starting Gemma. Nothing here modifies Qwen or Nemotron resources.
 
@@ -32,16 +32,16 @@ Adapted from the linked Nemotron runbook [B]. Its successful Nemotron results ar
 | Setting | Value |
 |---|---|
 | Namespace | `gemma` |
-| HF source | `RedHatAI/gemma-4-26B-A4B-it-FP8-dynamic` |
-| Service / served model name | `gemma4-26b-a4b-fp8-pp3` |
-| ImageStream | `gemma/gemma4-26b-a4b-fp8` |
+| HF source | `google/gemma-4-31B-it` |
+| Service / served model name | `gemma4-31b-bf16-pp3` |
+| ImageStream | `gemma/gemma4-31b-bf16` |
 | Initial model image tag | `v1`; pin the imported digest before validation |
 | Topology | One replica group, PP=3, TP=1, three processes on three nodes |
-| Decoder partition | `VLLM_PP_LAYER_PARTITION=10,10,10`, all ranks |
+| Decoder partition | `VLLM_PP_LAYER_PARTITION=20,20,20`, all ranks |
 | Nodes | `ocp113.localdomain`, `ocp114.localdomain`, `ocp115.localdomain` |
 | Resources per rank | 6 CPU, 48Gi host RAM, 1 A40, 1 `rdma/rdma_shared_device_dx_bond` |
 | Initial context / concurrency | 32,768 tokens / 2 active sequences |
-| Nonquantized compute / KV cache | BF16 / `auto` (no FP8 KV cache requested) |
+| Model / compute / KV cache | BF16 weights / BF16 compute / `auto` KV cache |
 | Images | One image per request initially; text output only |
 | Runtime | Upstream vLLM 0.27.1 candidate digest from baseline, identical on all ranks |
 | Local runtime config | `gemma4-pipeline-v1` |
@@ -56,21 +56,23 @@ Adapted from the linked Nemotron runbook [B]. Its successful Nemotron results ar
 
 The requested checkpoint accepts text and images and returns text. It does not generate images. Use the Gemma reasoning/tool parsers and its matching multimodal chat template; remove Nemotron-specific parser assumptions and do not pass `--language-model-only`. [M]
 
-The recipe [R] supplies model-serving conventions, but the retrieved page does **not** publish an A40 PP=3 deployment. Its GPU examples and FP8 recommendations cannot be treated as validation of this topology. The three-node launch here is adapted from your baseline [B] and checked against the pinned vLLM source [P].
+The recipe [R] supplies model-serving conventions, but the retrieved page does **not** publish an A40 PP=3 deployment. Its GPU examples cannot be treated as validation of this topology. The three-node launch here is adapted from your baseline [B] and checked against the pinned vLLM source [P].
 
 ### PP=3: explicit, model-specific split
 
-The inspected checkpoint configuration has 30 text decoder layers, with 16 attention heads, 8 local KV heads, 2 global KV heads and no shared-KV tail layers. Use PP=3/TP=1; do not replace it with TP=3, which does not divide those head counts. The explicit 10/10/10 split covers decoder indices 0–9, 10–19 and 20–29. The vision encoder has its own layers and is not part of that total. Equal decoder counts do not guarantee equal VRAM usage or processing time. [C, P]
+The inspected checkpoint configuration has 60 text decoder layers, with 32 attention heads, 16 local KV heads, 4 global KV heads and no shared-KV tail layers. Use PP=3/TP=1; do not replace it with TP=3, which does not divide those head counts. The explicit 20/20/20 split covers decoder indices 0–19, 20–39 and 40–59. The vision encoder has its own layers and is not part of that total. Equal decoder counts do not guarantee equal VRAM usage or processing time. [C, P]
 
 `VLLM_PP_LAYER_PARTITION` is provided to **all three ranks**. KServe's `pipeline: 3` drives `--pipeline-parallel-size=3` and `--nnodes=3`; LWS assigns rank 0/1/2. No expert parallelism, Ray cluster, speculative decoder or additional replica is configured.
 
-### A40 FP8 compatibility gate
+### A40 BF16 compatibility and memory budget
 
-A40 is Ampere SM86 and has no native FP8 Tensor Core arithmetic. vLLM documents FP8 weight-only execution with 16-bit activations through Marlin on Ampere [Q]. The v0.27.1 compressed-tensors source includes a W8A16 fallback for linear layers; the MoE selector also includes Marlin. That establishes a candidate path, **not a guarantee that this Gemma checkpoint and all its operators work**. Full checkpoint startup and both text/image requests are mandatory. [K]
+This deployment uses Google's original **dense 31B BF16 checkpoint**. The downloaded configuration declares `bfloat16`, disables MoE blocks and contains no quantization configuration. Keep `--dtype=bfloat16`; no quantization flag or compressed-tensors/Marlin checks are required. Image input and text output remain enabled. The checkpoint has no audio encoder, so the one-image, zero-audio/zero-video starting limits are intentional. [C]
 
-Let vLLM read `quant_method: compressed-tensors` from the checkpoint. Do not force `--quantization=fp8`, edit its quantization metadata, or claim native W8A8 acceleration on A40. `--dtype=bfloat16` controls nonquantized computation; it does not undo the stored weight quantization. Retain automatic kernel selection initially and capture the selected kernels in logs.
+Run the A40 CUDA/BF16 probe in section 2. Use the pinned vLLM 0.27.1 candidate and Gemma parsers/template from this runbook; full BF16 checkpoint loading, vision and PP=3 still need live validation. The upstream runtime is not a claim of Red Hat support for this custom deployment.
 
-No CPU weight offload or external KV-cache connector is enabled initially. Establish a functional baseline before adding offload. Three A40s offer substantial aggregate memory but PP does not pool it into one address space; one stage can still run out of VRAM. The 48Gi RAM allowance per pod is inherited conservatively, not a measured Gemma minimum.
+A rough weight-only estimate is 31 billion parameters × 2 bytes ≈ **62 GB (57.7 GiB)** across the full model, before KV cache, image encoder/workspaces, allocator overhead and checkpoint-specific differences. Use the imported checkpoint's actual size for capacity planning. Plan sufficient registry and node image-cache space for the BF16 ModelCar and its local image layers.
+
+Start without CPU weight offload or external KV-cache offload. The three A40s partition the model rather than form one pooled memory space. Equal decoder counts do not include all embedding/vision/output overhead, so measure each stage. Keep 48Gi host RAM per rank as the initial allowance; it is not a measured minimum. Benchmark latency and throughput with representative prompts after the initial validation passes.
 
 ### Infrastructure assumptions
 
@@ -95,11 +97,11 @@ oc create namespace gemma --dry-run=client -o yaml | oc apply -f -
 oc label namespace gemma opendatahub.io/dashboard=true --overwrite
 ```
 
-Do not reinstall cluster-scoped GPU/Network Operators, alter their device-sharing settings, or apply a replacement DataScienceCluster. Existing shared resources serve both namespaces.
+Do not reinstall cluster-scoped GPU/Network Operators, alter their device-sharing settings, or apply a replacement DataScienceCluster. Use the existing shared cluster infrastructure for the new `gemma` namespace.
 
 ### 2.1 GPU-visible feature probe (must be run)
 
-This checks A40 CUDA/BF16, Gemma model classes, both parsers, and multi-node launch flags. It deliberately does not download weights and cannot prove FP8/MoE or vision kernels work. Use one free GPU and save as `01-runtime-check.yaml`:
+This checks A40 CUDA/BF16, Gemma model classes, both parsers, and multi-node launch flags. It deliberately does not download weights and cannot prove full-model or vision kernels work. Use one free GPU and save as `01-runtime-check.yaml`:
 
 ```yaml
 apiVersion: v1
@@ -171,7 +173,7 @@ spec:
       assert "SupportsPP" in classes, "Pipeline interface missing"
       assert "SupportsPP" in [c.__name__ for c in Gemma4ForCausalLM.__mro__]
       print("FEATURE PROBE PASSED", flush=True)
-      print("Checkpoint loading, FP8/MoE kernels, images and three-node inference remain untested.")
+      print("Checkpoint loading, BF16 model kernels, images and three-node inference remain untested.")
       PY
     env:
     - name: HOME
@@ -372,17 +374,17 @@ Use OpenShift AI **Register and store** to create a new registered model/version
 
 | Field | Value |
 |---|---|
-| Model name | `Gemma 4 26B A4B FP8` |
+| Model name | `Gemma 4 31B BF16` |
 | Model type | Generative AI model (Example, LLM) |
 | Version name | `1` |
-| Model transfer job name | **gemma4-26b-a4b-fp8-import** |
+| Model transfer job name | **gemma4-31b-bf16-import** |
 | Project | **gemma** |
-| URI | `hf://RedHatAI/gemma-4-26B-A4B-it-FP8-dynamic` |
+| URI | `hf://google/gemma-4-31B-it` |
 | Destination registry | `image-registry.openshift-image-registry.svc:5000` |
-| Destination image URI | `image-registry.openshift-image-registry.svc:5000/gemma/gemma4-26b-a4b-fp8:v1` |
+| Destination image URI | `image-registry.openshift-image-registry.svc:5000/gemma/gemma4-31b-bf16:v1` |
 | Username | `model-registry-uploader` |
 | Password | The service-account token generated in section 5.2 |
-| Serving URI | `oci://image-registry.openshift-image-registry.svc:5000/gemma/gemma4-26b-a4b-fp8:v1` |
+| Serving URI | `oci://image-registry.openshift-image-registry.svc:5000/gemma/gemma4-31b-bf16:v1` |
 
 The destination UI URI includes the full registry hostname. Use `oci://` only in the model serving URI. Generate the upload credential below before submitting the import.
 
@@ -446,7 +448,7 @@ The upstream async-upload template also has a `SOURCE_CONNECTION` parameter that
 oc get jobs -n gemma
 
 # Set this to the exact NAME shown above, including any generated suffix.
-GEMMA_IMPORT_JOB='gemma4-26b-a4b-fp8-import'
+GEMMA_IMPORT_JOB='gemma4-31b-bf16-import'
 
 oc get job "$GEMMA_IMPORT_JOB" -n gemma -o json |
 jq '{
@@ -486,7 +488,7 @@ oc create rolebinding model-registry-uploader -n gemma \
   --serviceaccount=gemma:model-registry-uploader \
   --dry-run=client -o yaml | oc apply -f -
 
-oc create imagestream gemma4-26b-a4b-fp8 -n gemma \
+oc create imagestream gemma4-31b-bf16 -n gemma \
   --dry-run=client -o yaml | oc apply -f -
 
 oc auth can-i update imagestreams.image.openshift.io \
@@ -552,7 +554,7 @@ This decodes the expiry for inspection; it does not verify the token's signature
 ### 5.3 Supply credentials in Register and store
 
 1. Open the OpenShift AI model registration flow and choose **Register and store** for the Gemma source above.
-2. Set the destination image URI to `image-registry.openshift-image-registry.svc:5000/gemma/gemma4-26b-a4b-fp8:v1`.
+2. Set the destination image URI to `image-registry.openshift-image-registry.svc:5000/gemma/gemma4-31b-bf16:v1`.
 3. In the **destination OCI registry credentials** fields, enter Username `model-registry-uploader` and use the service-account token as Password, as described below. If another form offers credential-file upload instead, use `gemma-registry-upload-auth.json`. A Hugging Face source token is a separate credential.
 4. Submit the import and monitor its transfer status. The import job runs inside the cluster and uses the internal registry hostname; your browser does not need direct access to that hostname.
 
@@ -595,7 +597,7 @@ oc get jobs,pods -n gemma
 Wait for the UI transfer/import job to finish, then verify the ImageStream tag:
 
 ```bash
-oc get istag gemma4-26b-a4b-fp8:v1 -n gemma \
+oc get istag gemma4-31b-bf16:v1 -n gemma \
   -o jsonpath='{.image.dockerImageReference}{"\n"}'
 ```
 
@@ -675,7 +677,7 @@ Generate the auth file and create/update the pull secret. No token is printed:
       }
     ' > internal-registry-auth-serviceaccount.json
 
-  oc create secret generic gemma4-26b-a4b-fp8 \
+  oc create secret generic gemma4-31b-bf16 \
     -n gemma --type=kubernetes.io/dockerconfigjson \
     --from-file=.dockerconfigjson=internal-registry-auth-serviceaccount.json \
     --dry-run=client -o yaml |
@@ -686,7 +688,7 @@ Generate the auth file and create/update the pull secret. No token is printed:
 The Secret also serves as an OpenShift AI **OCI connection**, because section 9 references it through `opendatahub.io/connections`. A plain image-pull Secret is insufficient for that admission check. Add the protocol annotation and registry/project URL required by the connections API [9]. This patch preserves `.dockerconfigjson` and its credentials:
 
 ```bash
-oc patch secret gemma4-26b-a4b-fp8 -n gemma --type=merge -p '{
+oc patch secret gemma4-31b-bf16 -n gemma --type=merge -p '{
   "metadata": {
     "annotations": {
       "opendatahub.io/connection-type-protocol": "oci"
@@ -698,7 +700,7 @@ oc patch secret gemma4-26b-a4b-fp8 -n gemma --type=merge -p '{
 }'
 
 # Verify connection metadata without printing the registry token.
-oc get secret gemma4-26b-a4b-fp8 -n gemma -o json |
+oc get secret gemma4-31b-bf16 -n gemma -o json |
 jq '{name: .metadata.name,
      type,
      protocol: .metadata.annotations["opendatahub.io/connection-type-protocol"],
@@ -1112,15 +1114,15 @@ Start with eager execution and synchronous scheduling to reduce startup variable
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceService
 metadata:
-  name: gemma4-26b-a4b-fp8-pp3
+  name: gemma4-31b-bf16-pp3
   namespace: gemma
   labels:
     opendatahub.io/dashboard: 'true'
     opendatahub.io/genai-asset: 'true'
   annotations:
-    openshift.io/display-name: Gemma 4 26B A4B FP8 - Three A40s
+    openshift.io/display-name: Gemma 4 31B BF16 - Three A40s
     opendatahub.io/model-type: generative
-    opendatahub.io/connections: gemma4-26b-a4b-fp8
+    opendatahub.io/connections: gemma4-31b-bf16
     security.opendatahub.io/enable-auth: 'false'
     serving.kserve.io/stop: 'true'
 spec:
@@ -1129,8 +1131,8 @@ spec:
   annotations:
     k8s.v1.cni.cncf.io/networks: '[{"name":"rdma-gemma","namespace":"gemma","interface":"net1"}]'
   model:
-    name: gemma4-26b-a4b-fp8-pp3
-    uri: oci://image-registry.openshift-image-registry.svc:5000/gemma/gemma4-26b-a4b-fp8:v1
+    name: gemma4-31b-bf16-pp3
+    uri: oci://image-registry.openshift-image-registry.svc:5000/gemma/gemma4-31b-bf16:v1
   parallelism:
     pipeline: 3
     tensor: 1
@@ -1155,7 +1157,7 @@ spec:
           --limit-mm-per-prompt.image=1 --limit-mm-per-prompt.audio=0
           --limit-mm-per-prompt.video=0
       - name: VLLM_PP_LAYER_PARTITION
-        value: '10,10,10'
+        value: '20,20,20'
       - name: OMP_NUM_THREADS
         value: '6'
       - name: NCCL_DEBUG
@@ -1183,7 +1185,7 @@ spec:
           nvidia.com/gpu: '1'
           rdma/rdma_shared_device_dx_bond: '1'
     imagePullSecrets:
-    - name: gemma4-26b-a4b-fp8
+    - name: gemma4-31b-bf16
     nodeSelector:
       nvidia.com/gpu.product: NVIDIA-A40
   worker:
@@ -1199,7 +1201,7 @@ spec:
           --limit-mm-per-prompt.image=1 --limit-mm-per-prompt.audio=0
           --limit-mm-per-prompt.video=0
       - name: VLLM_PP_LAYER_PARTITION
-        value: '10,10,10'
+        value: '20,20,20'
       - name: OMP_NUM_THREADS
         value: '6'
       - name: NCCL_DEBUG
@@ -1227,7 +1229,7 @@ spec:
           nvidia.com/gpu: '1'
           rdma/rdma_shared_device_dx_bond: '1'
     imagePullSecrets:
-    - name: gemma4-26b-a4b-fp8
+    - name: gemma4-31b-bf16
     nodeSelector:
       nvidia.com/gpu.product: NVIDIA-A40
 ```
@@ -1235,7 +1237,7 @@ spec:
 ```bash
 oc apply --dry-run=server -f 05-gemma-three-a40.yaml
 oc apply -f 05-gemma-three-a40.yaml
-oc get llminferenceservice gemma4-26b-a4b-fp8-pp3 -n gemma
+oc get llminferenceservice gemma4-31b-bf16-pp3 -n gemma
 ```
 
 Do not add `data`, `dataLocal`, or `dataRPCPort`, and do not put duplicate TP/PP launch options in `VLLM_ADDITIONAL_ARGS`. Keep both leader and worker resource/credential settings. The start annotation may prevent readiness while stopped; that is expected.
@@ -1262,11 +1264,11 @@ If GPU pods from another workload remain on the three A40 nodes (including Termi
 Start Gemma:
 
 ```bash
-oc annotate llminferenceservice gemma4-26b-a4b-fp8-pp3 \
+oc annotate llminferenceservice gemma4-31b-bf16-pp3 \
   -n gemma serving.kserve.io/stop=false --overwrite
 
 oc get pods -n gemma -o wide
-oc wait llminferenceservice/gemma4-26b-a4b-fp8-pp3 \
+oc wait llminferenceservice/gemma4-31b-bf16-pp3 \
   -n gemma --for=condition=Ready --timeout=1800s
 ```
 
@@ -1275,7 +1277,7 @@ If the wait fails, collect section 15 diagnostics. Do not automatically restart 
 ## 11. Verify serving, network selection, and inference
 
 ```bash
-oc get llminferenceservice gemma4-26b-a4b-fp8-pp3 -n gemma -o json |
+oc get llminferenceservice gemma4-31b-bf16-pp3 -n gemma -o json |
 jq '{generation: .metadata.generation,
      observedGeneration: .status.observedGeneration,
      appliedConfigs: .status.appliedConfigs,
@@ -1290,14 +1292,14 @@ Expect one leader plus two workers, each on an A40 node, one GPU per pod. Inspec
 ```bash
 oc get pods -n gemma -o json |
 jq -r '.items[] |
-  select(.metadata.name | startswith("gemma4-26b-a4b-fp8-pp3-kserve-mn-")) |
+  select(.metadata.name | startswith("gemma4-31b-bf16-pp3-kserve-mn-")) |
   [.metadata.name,
    .spec.nodeName,
    .metadata.annotations["openshift.io/scc"],
    .metadata.annotations["k8s.v1.cni.cncf.io/network-status"]] | @tsv'
 
 for pod in $(oc get pods -n gemma -o json |
-  jq -r '.items[] | select(.metadata.name | startswith("gemma4-26b-a4b-fp8-pp3-kserve-mn-")) | .metadata.name'); do
+  jq -r '.items[] | select(.metadata.name | startswith("gemma4-31b-bf16-pp3-kserve-mn-")) | .metadata.name'); do
   oc logs -n gemma "$pod" -c main --tail=1000 > "${pod}.log"
   grep -Ei 'NCCL|NET/IB|NET/Socket|GID|172\.16\.103|error|traceback' "${pod}.log" || true
 done
@@ -1308,14 +1310,14 @@ Every group pod needs `net1` in 172.16.103.0/24 and the expected RDMA allocation
 Run an internal API test from the leader (no extra client image needed):
 
 ```bash
-oc exec -i -n gemma gemma4-26b-a4b-fp8-pp3-kserve-mn-0 -c main -- python3 - <<'PYTEST'
+oc exec -i -n gemma gemma4-31b-bf16-pp3-kserve-mn-0 -c main -- python3 - <<'PYTEST'
 import json
 import urllib.request
-base = "http://gemma-inference-openshift-default.gemma.svc.cluster.local/gemma/gemma4-26b-a4b-fp8-pp3/v1"
+base = "http://gemma-inference-openshift-default.gemma.svc.cluster.local/gemma/gemma4-31b-bf16-pp3/v1"
 with urllib.request.urlopen(base + "/models", timeout=30) as response:
     print(json.dumps(json.load(response), indent=2))
 payload = {
-    "model": "gemma4-26b-a4b-fp8-pp3",
+    "model": "gemma4-31b-bf16-pp3",
     "messages": [{"role": "user", "content": "Explain RoCE in two sentences."}],
     "max_tokens": 256,
     "temperature": 0.7,
@@ -1339,34 +1341,38 @@ Check the generated workload rather than relying only on the desired CR:
 
 ```bash
 oc get pods -n gemma -o json |
-jq '.items[] | select(.metadata.name | startswith("gemma4-26b-a4b-fp8-pp3-kserve-mn-")) |
+jq '.items[] | select(.metadata.name | startswith("gemma4-31b-bf16-pp3-kserve-mn-")) |
   {name: .metadata.name, node: .spec.nodeName,
    account: .spec.serviceAccountName,
    main: [.spec.containers[] | select(.name == "main") |
      {image, command, args, env, resources, volumeMounts}]}'
 
-oc exec -i -n gemma gemma4-26b-a4b-fp8-pp3-kserve-mn-0 -c main -- python3 - <<'PY'
+oc exec -i -n gemma gemma4-31b-bf16-pp3-kserve-mn-0 -c main -- python3 - <<'PY'
 import json
 from pathlib import Path
 c = json.loads(Path('/mnt/models/config.json').read_text())
 t = c['text_config']
 print('Architecture:', c['architectures'])
 print('Decoder layers:', t['num_hidden_layers'])
-print('Quantization:', c['quantization_config']['quant_method'])
+print('Checkpoint dtype:', t.get('dtype', c.get('dtype')))
+print('Dense model:', not t.get('enable_moe_block', False))
+print('Quantization config:', c.get('quantization_config'))
 print('Template mounted:', Path('/etc/gemma/tool_chat_template_gemma4.jinja').is_file())
-assert t['num_hidden_layers'] == 30, 'Recalculate the PP split for this revision'
-assert c['quantization_config']['quant_method'] == 'compressed-tensors'
+assert t['num_hidden_layers'] == 60, 'Recalculate the PP split for this revision'
+assert not c.get('quantization_config'), 'Expected the unquantized Google checkpoint'
+assert not t.get('enable_moe_block', False), 'Expected the dense 31B model'
+assert t.get('dtype', c.get('dtype')) == 'bfloat16'
 PY
 ```
 
-Inspect all-rank logs for PP=3, TP=1, successful checkpoint loading, selected quantization/attention backends, and successful KV-cache allocation. Confirm the partition environment exists on all ranks. An import or feature probe alone is not this test. Record whether Marlin or another supported fallback was actually selected. Do not label the run native FP8 merely because the checkpoint is named FP8.
+Inspect all-rank logs for PP=3, TP=1, BF16 dtype, successful checkpoint loading, selected attention backend and successful KV-cache allocation. Confirm `VLLM_PP_LAYER_PARTITION=20,20,20` exists on every rank. A feature probe or model import alone is not this test. No FP8 quantization or Marlin fallback should be required for this original Google checkpoint.
 
 ### 11.2 Image test without Internet access
 
 This creates a small PNG with red on the left and blue on the right using Python's standard library, sends it as a data URL, and asks for the colors. It avoids image-server/network dependencies and confirms a genuine image request through the same gateway used by WebUI.
 
 ```bash
-oc exec -i -n gemma gemma4-26b-a4b-fp8-pp3-kserve-mn-0 -c main -- python3 - <<'PY'
+oc exec -i -n gemma gemma4-31b-bf16-pp3-kserve-mn-0 -c main -- python3 - <<'PY'
 import base64, json, struct, urllib.request, zlib
 def chunk(kind, data):
     return (struct.pack('!I', len(data)) + kind + data +
@@ -1378,7 +1384,7 @@ png = (b'\x89PNG\r\n\x1a\n' +
        chunk(b'IDAT', zlib.compress(row * h)) + chunk(b'IEND', b''))
 uri = 'data:image/png;base64,' + base64.b64encode(png).decode()
 payload = {
-    'model': 'gemma4-26b-a4b-fp8-pp3',
+    'model': 'gemma4-31b-bf16-pp3',
     'messages': [{'role': 'user', 'content': [
         {'type': 'text', 'text': 'Name the color on the left and the color on the right.'},
         {'type': 'image_url', 'image_url': {'url': uri}},
@@ -1386,7 +1392,7 @@ payload = {
     'max_tokens': 128, 'temperature': 0,
     'chat_template_kwargs': {'enable_thinking': False},
 }
-url = 'http://gemma-inference-openshift-default.gemma.svc.cluster.local/gemma/gemma4-26b-a4b-fp8-pp3/v1/chat/completions'
+url = 'http://gemma-inference-openshift-default.gemma.svc.cluster.local/gemma/gemma4-31b-bf16-pp3/v1/chat/completions'
 req = urllib.request.Request(url, data=json.dumps(payload).encode(),
     headers={'Content-Type': 'application/json'})
 with urllib.request.urlopen(req, timeout=300) as r:
@@ -1400,10 +1406,10 @@ Expected semantic result: **left red, right blue**. Then use a real photograph, 
 ### 11.3 Tool-call parsing test (does not execute a tool)
 
 ```bash
-oc exec -i -n gemma gemma4-26b-a4b-fp8-pp3-kserve-mn-0 -c main -- python3 - <<'PY'
+oc exec -i -n gemma gemma4-31b-bf16-pp3-kserve-mn-0 -c main -- python3 - <<'PY'
 import json, urllib.request
 payload = {
-    'model': 'gemma4-26b-a4b-fp8-pp3',
+    'model': 'gemma4-31b-bf16-pp3',
     'messages': [{'role': 'user', 'content':
         'Use the get_temperature tool to get the temperature in Boston, MA.'}],
     'tools': [{'type': 'function', 'function': {
@@ -1413,7 +1419,7 @@ payload = {
     'tool_choice': 'auto', 'max_tokens': 512, 'temperature': 0,
     'chat_template_kwargs': {'enable_thinking': False},
 }
-url = 'http://gemma-inference-openshift-default.gemma.svc.cluster.local/gemma/gemma4-26b-a4b-fp8-pp3/v1/chat/completions'
+url = 'http://gemma-inference-openshift-default.gemma.svc.cluster.local/gemma/gemma4-31b-bf16-pp3/v1/chat/completions'
 req = urllib.request.Request(url, data=json.dumps(payload).encode(),
     headers={'Content-Type': 'application/json'})
 with urllib.request.urlopen(req, timeout=300) as r:
@@ -1440,9 +1446,9 @@ Then run:
 
 ```bash
 curl --fail-with-body --no-buffer \
-  http://127.0.0.1:18080/gemma/gemma4-26b-a4b-fp8-pp3/v1/chat/completions \
+  http://127.0.0.1:18080/gemma/gemma4-31b-bf16-pp3/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"gemma4-26b-a4b-fp8-pp3","messages":[{"role":"user","content":"Count from one to five."}],"max_tokens":128,"stream":true,"chat_template_kwargs":{"enable_thinking":false}}'
+  -d '{"model":"gemma4-31b-bf16-pp3","messages":[{"role":"user","content":"Count from one to five."}],"max_tokens":128,"stream":true,"chat_template_kwargs":{"enable_thinking":false}}'
 ```
 
 Expect completed SSE output, including the stream terminator. Run two independent short prompts simultaneously from separate terminals or WebUI chats, using different facts in each conversation. Confirm each answer follows its own submitted history. Repeat with representative long inputs and one-image prompts while monitoring all ranks; two successful short requests do not validate two 32K requests.
@@ -1462,7 +1468,7 @@ metadata:
   annotations:
     haproxy.router.openshift.io/timeout: 300s
 spec:
-  path: /gemma/gemma4-26b-a4b-fp8-pp3
+  path: /gemma/gemma4-31b-bf16-pp3
   to:
     kind: Service
     name: gemma-inference-openshift-default
@@ -1478,14 +1484,14 @@ spec:
 ```bash
 oc apply -f 06-gemma-route.yaml
 GEMMA_HOST=$(oc get route gemma4-pp3 -n gemma -o jsonpath='{.spec.host}')
-printf 'https://%s/gemma/gemma4-26b-a4b-fp8-pp3/v1
+printf 'https://%s/gemma/gemma4-31b-bf16-pp3/v1
 ' "$GEMMA_HOST"
 
 curl --fail-with-body -k -N \
-  "https://${GEMMA_HOST}/gemma/gemma4-26b-a4b-fp8-pp3/v1/chat/completions" \
+  "https://${GEMMA_HOST}/gemma/gemma4-31b-bf16-pp3/v1/chat/completions" \
   -H 'Content-Type: application/json' \
   -d '{
-    "model":"gemma4-26b-a4b-fp8-pp3",
+    "model":"gemma4-31b-bf16-pp3",
     "messages":[{"role":"user","content":"Say hello in one sentence."}],
     "max_tokens":128,
     "temperature":0.7,
@@ -1591,7 +1597,7 @@ spec:
         - name: ENABLE_OPENAI_API
           value: 'true'
         - name: OPENAI_API_BASE_URL
-          value: http://gemma-inference-openshift-default.gemma.svc.cluster.local/gemma/gemma4-26b-a4b-fp8-pp3/v1
+          value: http://gemma-inference-openshift-default.gemma.svc.cluster.local/gemma/gemma4-31b-bf16-pp3/v1
         - name: OPENAI_API_KEY
           value: fake
         - name: UVICORN_WORKERS
@@ -1662,7 +1668,7 @@ oc annotate route open-webui -n gemma \
 oc get route open-webui -n gemma -o jsonpath='https://{.spec.host}{"\n"}'
 ```
 
-On the same cluster domain, the expected assigned hostname is `open-webui-gemma.apps.ocp4.localdomain`; use the printed value as authoritative. Register the administrator account first, select `gemma4-26b-a4b-fp8-pp3`, and send a short prompt. Test a regular user account separately. A visible model-list alias is not another loaded model.
+On the same cluster domain, the expected assigned hostname is `open-webui-gemma.apps.ocp4.localdomain`; use the printed value as authoritative. Register the administrator account first, select `gemma4-31b-bf16-pp3`, and send a short prompt. Test a regular user account separately. A visible model-list alias is not another loaded model.
 
 Enable **Vision** for this model in the WebUI model settings if the image attachment option is unavailable; custom served-model IDs may not be auto-detected. Upload one known image and confirm the answer uses its contents. If the direct image API test passes but WebUI fails, inspect the WebUI connection URL, model capabilities and request payload before changing vLLM.
 
@@ -1689,20 +1695,20 @@ The standalone WebUI above completes the requested browser interface; an OGX cop
 Verify its vLLM provider uses exactly:
 
 ```text
-http://gemma-inference-openshift-default.gemma.svc.cluster.local/gemma/gemma4-26b-a4b-fp8-pp3/v1
+http://gemma-inference-openshift-default.gemma.svc.cluster.local/gemma/gemma4-31b-bf16-pp3/v1
 ```
 
-The provider model ID must be `gemma4-26b-a4b-fp8-pp3`. A UI-generated endpoint pointing at the old shared gateway can produce a 404. This optional Playground setup needs its own live configuration capture before it can be called validated.
+The provider model ID must be `gemma4-31b-bf16-pp3`. A UI-generated endpoint pointing at the old shared gateway can produce a 404. This optional Playground setup needs its own live configuration capture before it can be called validated.
 
 ## 15. Stop or restart Gemma and troubleshoot
 
 Stop Gemma first:
 
 ```bash
-oc annotate llminferenceservice gemma4-26b-a4b-fp8-pp3 \
+oc annotate llminferenceservice gemma4-31b-bf16-pp3 \
   -n gemma serving.kserve.io/stop=true --overwrite
 oc wait pods -n gemma \
-  -l leaderworkerset.sigs.k8s.io/name=gemma4-26b-a4b-fp8-pp3-kserve-mn \
+  -l leaderworkerset.sigs.k8s.io/name=gemma4-31b-bf16-pp3-kserve-mn \
   --for=delete --timeout=600s
 ```
 
@@ -1713,18 +1719,18 @@ To restart Gemma, confirm all three A40s are available and repeat section 10. Do
 Diagnostic commands:
 
 ```bash
-oc get llminferenceservice gemma4-26b-a4b-fp8-pp3 -n gemma -o yaml
+oc get llminferenceservice gemma4-31b-bf16-pp3 -n gemma -o yaml
 oc get pods -n gemma -o wide
 oc get events -n gemma --sort-by=.metadata.creationTimestamp | tail -50
 oc get gateway gemma-inference -n gemma -o yaml
 oc get httproute,inferencepool -n gemma
-oc logs -n gemma gemma4-26b-a4b-fp8-pp3-kserve-mn-0 -c main --tail=300
+oc logs -n gemma gemma4-31b-bf16-pp3-kserve-mn-0 -c main --tail=300
 ```
 
 | Symptom | Next action |
 |---|---|
 | Unsupported architecture/parser/argument | Stop; compare the preflight and packaged runtime with the checkpoint requirements. Resolve a compatible runtime by updating the gemma-owned preset and probe together |
-| FP8/MoE/vision kernel unsupported / illegal instruction | Preserve complete stack trace, GPU architecture and runtime version; model registry recognition alone is insufficient |
+| BF16/attention/vision kernel unsupported / illegal instruction | Preserve complete stack trace, GPU architecture and runtime version; model registry recognition alone is insufficient |
 | PP or mixed-attention cache assertion | Investigate model/runtime PP support. Do not assume TP=3 is a valid substitute; model dimensions must support the chosen topology |
 | GPU pods Pending | Check competing model pods, 48Gi/6 CPU availability, A40 labels and admission events |
 | ImagePullBackOff on ModelCar | Verify gemma import completed, full registry path, puller RBAC and gemma Secret; use the Secret created in gemma |
@@ -1766,11 +1772,11 @@ Tune one variable at a time:
 2. If VRAM is tight, lower context to 16,384 and sequences to 1; inspect the failing stage and image profiling memory.
 3. If stable, test prefix caching or remove `--enforce-eager` separately; record memory and latency changes. Re-test image and tool requests after each change.
 4. Raise the image cap to 2 or 4 only after profiling representative images. Avoid copying Hopper-oriented async/FP8-KV settings without checking the pinned runtime and A40 backend.
-5. Raise context to 65,536 only with measured memory headroom and long-request tests. The recipe advertises 128K while the inspected config permits 262,144 positions; neither is evidence that your deployment can serve those lengths. The explicit 32K limit is intentional.
+5. Raise context to 65,536 only with measured memory headroom and long-request tests. The checkpoint permits 262,144 positions; this is not evidence that your deployment can serve that length. The explicit 32K limit is intentional.
 
 ### 15.3 Offloading is optional, not part of the initial deployment
 
-The requested FP8 checkpoint is already weight-compressed. Start without weight offload. If a stage runs out of VRAM **because of model weights**, a later experiment can add `--cpu-offload-gb=4` to both argument lists after confirming that option in the pinned runtime's help. This is a per-GPU CPU-memory allowance, not a storage cache, unified GPU memory pool or promise that every Gemma MoE tensor can be offloaded. Budget additional host RAM and expect CPU/GPU transfer costs. Test compatibility and speed before retaining it.
+The requested Google checkpoint uses BF16 weights. Start without weight offload and measure per-stage VRAM usage. If a stage runs out of VRAM **because of model weights**, a later experiment can add `--cpu-offload-gb=4` to both argument lists after confirming that option in the pinned runtime's help. This is a per-GPU CPU-memory allowance, not a storage cache, unified GPU memory pool or guarantee of compatibility with every Gemma component. Budget additional host RAM and expect CPU/GPU transfer costs. Test compatibility and speed before retaining it.
 
 External KV caching/offload requires a separately compatible connector and configuration. Do not copy a Nemotron/Mamba cache setup into this mixed local/global-attention model. Cache reuse does not automatically free all active-request KV memory; a PVC or fast NVMe device alone does not make vLLM use it. Retain the no-offload baseline for rollback.
 
@@ -1782,7 +1788,7 @@ Before an upgrade, save the Gemma service, local runtime config, gateway and tem
 
 ```bash
 mkdir -p upgrade-capture
-oc get llminferenceservice gemma4-26b-a4b-fp8-pp3 -n gemma -o yaml \
+oc get llminferenceservice gemma4-31b-bf16-pp3 -n gemma -o yaml \
   > upgrade-capture/service.yaml
 oc get llminferenceserviceconfig gemma4-pipeline-v1 -n gemma -o yaml \
   > upgrade-capture/runtime.yaml
@@ -1803,8 +1809,8 @@ This document was statically checked; the cluster deployment remains untested. F
 | Source checkpoint | Exact HF commit and imported OCI digest |
 | Runtime | Image digest, vLLM, PyTorch, CUDA, NVIDIA driver |
 | Feature probe | Succeeded on A40; both parsers load |
-| Full model load | Actual quantization kernels, no unsupported operator errors |
-| Topology | Three ranks on distinct A40 nodes, PP3/TP1, 10/10/10 |
+| Full model load | BF16 weights/compute, no unsupported operator errors |
+| Topology | Three ranks on distinct A40 nodes, PP3/TP1, 20/20/20 |
 | Memory | Per-stage weight/cache usage, host RSS and image profiling peak |
 | Network | Every net1 address, bidirectional checks, all-rank NCCL transport |
 | Serving | Ready plus correct text, image and tool responses |
@@ -1814,21 +1820,17 @@ This document was statically checked; the cluster deployment remains untested. F
 | Lifecycle | Stop/start succeeds and releases all three GPUs |
 | Upgrade | Applied config and generated workload remain correct after reconciliation |
 
-Source links were reviewed October 22, 2026. Upstream source inspection is evidence of implementation, not a support certification or live performance result.
+The Google 31B model card, configuration and 31B recipe were reviewed November 4, 2026. Runtime and infrastructure references are retained from the October 22 baseline. Upstream source inspection is evidence of implementation, not a support certification or live performance result.
 
 [B] [Original Nemotron Three A40 Runbook](https://github.com/singlecheeze/ocp-cheat-sheet/blob/main/OpenShift%20AI/Nemotron%20Three%20A40%20Runbook/Nemotron%20Three%20A40%20Runbook.md) — user-supplied cluster layout and operational baseline.
 
-[M] [Requested RedHatAI model card](https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-FP8-dynamic) — model identity and quantization.
+[M] [Requested Google model card](https://huggingface.co/google/gemma-4-31B-it) — model identity and capabilities.
 
-[R] [Requested vLLM recipe](https://recipes.vllm.ai/Google/gemma-4-26B-A4B-it) — parser, template and multimodal conventions; no published A40 PP3 validation in retrieved page.
+[R] [Requested vLLM recipe](https://recipes.vllm.ai/Google/gemma-4-31B-it) — parser, template and multimodal conventions; no published A40 PP3 validation in retrieved page.
 
-[C] [Checkpoint configuration](https://huggingface.co/RedHatAI/gemma-4-26B-A4B-it-FP8-dynamic/blob/main/config.json) — inspect again at the exact imported revision.
+[C] [Checkpoint configuration](https://huggingface.co/google/gemma-4-31B-it/blob/main/config.json) — inspect again at the exact imported revision.
 
 [P] vLLM v0.27.1 [text implementation](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/model_executor/models/gemma4.py) and [multimodal implementation](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/model_executor/models/gemma4_mm.py).
-
-[Q] [vLLM FP8 documentation](https://docs.vllm.ai/en/v0.27.1/features/quantization/fp8/) — Ampere uses weight-only fallback rather than native W8A8.
-
-[K] vLLM v0.27.1 [compressed-tensors selection](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors.py) and [FP8 MoE backend selection](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/model_executor/layers/fused_moe/oracle/fp8.py).
 
 [T] [Version-matched Gemma chat template](https://github.com/vllm-project/vllm/blob/v0.27.1/examples/tool_chat_template_gemma4.jinja).
 
