@@ -1,6 +1,6 @@
 # Gemma 4 31B BF16 — Three A40 Runbook
 
-**OpenShift 4.22 / OpenShift AI 3.5.x • updated November 4, 2026 • deployment candidate, not cluster-validated**
+**OpenShift 4.22 / OpenShift AI 3.5.x • updated November 5, 2026 • deployment candidate, not cluster-validated**
 
 Create a new deployment of `google/gemma-4-31B-it` as an independent `LLMInferenceService` in namespace `gemma`, using three A40 GPUs, one per node, pipeline parallelism 3 and tensor parallelism 1. Includes ModelCar import, namespace-owned runtime, RoCE attachment, gateway, optional external model Route, and separate persistent Open WebUI.
 
@@ -44,7 +44,7 @@ Adapted from the linked Nemotron runbook [B]. Its successful Nemotron results ar
 | Model / compute / KV cache | BF16 weights / BF16 compute / `auto` KV cache |
 | Images | One image per request initially; text output only |
 | Runtime | Upstream vLLM 0.27.1 candidate digest from baseline, identical on all ranks |
-| Local runtime config | `gemma4-pipeline-v1` |
+| Local runtime config | `v3-5-2-kserve-config-llm-worker-pipeline-parallel` |
 | Network / NAD | `rdma-gemma` / `gemma/rdma-gemma` |
 | Secondary subnet | Proposed `172.16.103.0/24`; confirm unused before applying |
 | Interface | `net1`, macvlan on existing `bond1`, MTU 9000 |
@@ -88,7 +88,7 @@ oc get storageclass ocs-storagecluster-ceph-rbd
 oc get subscriptions -n redhat-ods-operator
 ```
 
-Keep manifests under your own version control, excluding tokens and credential JSON. This runbook uses namespace-owned objects and a stable explicit runtime reference, but shared controller/preset changes still require regression testing after OpenShift AI upgrades.
+Keep manifests under your own version control, excluding tokens and credential JSON. This runbook uses namespace-owned objects and a release-specific local pipeline preset and matching explicit reference, but shared controller/preset changes still require regression testing after OpenShift AI upgrades.
 
 ## 2. Namespace and runtime preflight
 
@@ -760,7 +760,9 @@ oc get clusterrole openshift-ai-llminferenceservice-scc
 oc apply -f 03-gemma-inference-account.yaml
 ```
 
-Save as `03-gemma-runtime.yaml`. This is an explicit, namespace-local `LLMInferenceServiceConfig` named `gemma4-pipeline-v1`, referenced by the service's `baseRefs`. It does not overwrite an operator-owned release-prefixed preset. Shared defaults may still be merged by KServe; after reconciliation, inspect the applied configs **and actual pod commands/images** before considering the deployment correct. [5]
+Save as `03-gemma-runtime.yaml`. The installed OpenShift AI 3.5.2 controller requests the exact pipeline preset name `v3-5-2-kserve-config-llm-worker-pipeline-parallel`. Create this object in namespace `gemma` and use the same name in the service's `baseRefs`. A differently named custom `baseRefs` configuration does not remove the controller's automatic pipeline-preset lookup; if the expected preset is absent from both `gemma` and `redhat-ods-applications`, preset combination fails before serving starts.
+
+The namespace-local object supplies the Gemma runtime without modifying a preset in `redhat-ods-applications`. Shared defaults may still be merged by KServe; inspect applied configs **and actual pod commands/images** after reconciliation. If a later operator release requests a different preset name, review that release's requirements and update the local preset name and service reference together. The name shown here is tied to the observed 3.5.2 controller, not an upgrade-independent alias. [5]
 
 First obtain a version-matched Gemma template on the workstation, verify its checksum, and create a ConfigMap. For offline operation, transfer this exact file from an Internet-connected workstation before running the `oc create` command. The template is mounted on every rank, so the deployment does not rely on an image-relative `examples/` path.
 
@@ -780,7 +782,7 @@ oc create configmap gemma4-chat-template -n gemma \
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
-  name: gemma4-pipeline-v1
+  name: v3-5-2-kserve-config-llm-worker-pipeline-parallel
   namespace: gemma
   labels:
     app.kubernetes.io/part-of: gemma
@@ -1054,7 +1056,7 @@ spec:
 oc apply --dry-run=server -f 03-gemma-runtime.yaml
 oc apply -f 03-gemma-runtime.yaml
 oc get llminferenceserviceconfig \
-  gemma4-pipeline-v1 -n gemma
+  v3-5-2-kserve-config-llm-worker-pipeline-parallel -n gemma
 ```
 
 The full leader/worker commands, probes, volumes, and runtime image are owned here. If changing the runtime image after a failed compatibility gate, change both containers and section 2's probe to the same tested digest. Keep the operator-provided scheduler and routing presets shared.
@@ -1063,12 +1065,12 @@ The leader and worker use the same **candidate** upstream digest as the feature 
 
 ```bash
 oc get llminferenceserviceconfig \
-  gemma4-pipeline-v1 -n gemma -o json |
+  v3-5-2-kserve-config-llm-worker-pipeline-parallel -n gemma -o json |
 jq '{leader: .spec.template.containers[0].image,
      worker: .spec.worker.containers[0].image}'
 ```
 
-After startup, `status.appliedConfigs` must include `gemma4-pipeline-v1` from `gemma`. Also verify actual main-container images, launch commands, arguments, template mounts and service accounts on all three pods. Stop if any differs from the intended configuration; inspect merge behavior and the installed controller before adjusting only Gemma-owned manifests. Repeat after upgrades.
+After startup, `status.appliedConfigs` must include `v3-5-2-kserve-config-llm-worker-pipeline-parallel` from `gemma`. Also verify actual main-container images, launch commands, arguments, template mounts and service accounts on all three pods. Stop if any differs from the intended configuration; inspect merge behavior and the installed controller before adjusting only Gemma-owned manifests. Repeat after upgrades.
 
 ## 8. Create the namespace-local gateway
 
@@ -1127,7 +1129,7 @@ metadata:
     serving.kserve.io/stop: 'true'
 spec:
   baseRefs:
-  - name: gemma4-pipeline-v1
+  - name: v3-5-2-kserve-config-llm-worker-pipeline-parallel
   annotations:
     k8s.v1.cni.cncf.io/networks: '[{"name":"rdma-gemma","namespace":"gemma","interface":"net1"}]'
   model:
@@ -1729,6 +1731,7 @@ oc logs -n gemma gemma4-31b-bf16-pp3-kserve-mn-0 -c main --tail=300
 
 | Symptom | Next action |
 |---|---|
+| Presets combined: pipeline config not found | Confirm `03-gemma-runtime.yaml` was applied in `gemma` using the exact release-specific name in the error, and that section 9 references it. A custom alias alone does not satisfy automatic preset lookup |
 | Unsupported architecture/parser/argument | Stop; compare the preflight and packaged runtime with the checkpoint requirements. Resolve a compatible runtime by updating the gemma-owned preset and probe together |
 | BF16/attention/vision kernel unsupported / illegal instruction | Preserve complete stack trace, GPU architecture and runtime version; model registry recognition alone is insufficient |
 | PP or mixed-attention cache assertion | Investigate model/runtime PP support. Do not assume TP=3 is a valid substitute; model dimensions must support the chosen topology |
@@ -1782,7 +1785,7 @@ External KV caching/offload requires a separately compatible connector and confi
 
 ### 15.4 Upgrade resilience and rollback
 
-The local config, explicit reference, pinned runtime digest and pinned model digest improve reproducibility. They do **not** freeze KServe's schema, scheduler, routing defaults or merge behavior. Automatic OpenShift AI upgrades can still affect this service.
+The local config, explicit reference, pinned runtime digest and pinned model digest improve reproducibility. They do **not** freeze KServe's schema, scheduler, routing defaults or merge behavior. Automatic OpenShift AI upgrades can still affect this service, including changing the automatically selected pipeline preset name. An explicit `baseRefs` entry does not bypass that lookup.
 
 Before an upgrade, save the Gemma service, local runtime config, gateway and template ConfigMap (excluding credential Secrets) and record the actual running image IDs:
 
@@ -1790,7 +1793,7 @@ Before an upgrade, save the Gemma service, local runtime config, gateway and tem
 mkdir -p upgrade-capture
 oc get llminferenceservice gemma4-31b-bf16-pp3 -n gemma -o yaml \
   > upgrade-capture/service.yaml
-oc get llminferenceserviceconfig gemma4-pipeline-v1 -n gemma -o yaml \
+oc get llminferenceserviceconfig v3-5-2-kserve-config-llm-worker-pipeline-parallel -n gemma -o yaml \
   > upgrade-capture/runtime.yaml
 oc get gateway gemma-inference -n gemma -o yaml > upgrade-capture/gateway.yaml
 oc get configmap gemma4-chat-template -n gemma -o yaml > upgrade-capture/template.yaml
