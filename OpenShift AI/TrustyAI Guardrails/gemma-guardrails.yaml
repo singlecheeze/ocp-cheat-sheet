@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gemma-guardrails-policy
+  namespace: gemma
+data:
+  config.yaml: |
+    passthrough: true
+    models:
+      - type: main
+        engine: openai
+        model: "gemma4-31b-bf16-pp3"
+        api_key_env_var: OPENAI_API_KEY
+        parameters:
+          base_url: "http://gemma-inference-openshift-default.gemma.svc.cluster.local/gemma/gemma4-31b-bf16-pp3/v1"
+    rails:
+      config:
+        regex_detection:
+          input: &pii
+            case_insensitive: true
+            patterns:
+              - '[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}'
+              - '\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b'
+          output: *pii
+      input:
+        flows:
+          - regex check input
+      output:
+        flows:
+          - regex check output
+  rails.co: |
+    # The flows are supplied by NeMo Guardrails.
+---
+apiVersion: trustyai.opendatahub.io/v1alpha1
+kind: NemoGuardrails
+metadata:
+  name: gemma-guardrails
+  namespace: gemma
+  annotations:
+    security.opendatahub.io/enable-auth: "true"
+spec:
+  replicas: 1
+  nemoConfigs:
+    - name: gemma-pii
+      configMaps:
+        - gemma-guardrails-policy
+      default: true
+  env:
+    - name: OPENAI_API_KEY
+      value: "unused-for-local-vllm"
